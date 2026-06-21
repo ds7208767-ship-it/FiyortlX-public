@@ -1,0 +1,47 @@
+export type TabKey = "overview" | "transaction" | "history" | "debts" | "analysis";
+
+export type TransactionType = "income" | "expense";
+
+export type AccountKey = "cash" | "bank" | "creditCard" | "benefit";
+
+export type AnalysisMode = "category" | "flow" | "pie";
+
+export type BaseBalances = {
+  cash: number;
+  bank: number;
+  benefit: number;
+  savings: number;
+  creditDebt: number;
+};
+
+export type Transaction = {
+  id: string;
+  date: string;
+  type: TransactionType;
+  account: AccountKey;
+  category: string;
+  amount: number;
+  note: string;
+  createdAt: string;
+  source?: "manual" | "debtPayment";
+  debtId?: string;
+};
+
+export type Debt = {
+  id: string;
+  title: string;
+  amount: number;
+  dueDate: string;
+  note: string;
+  paid: boolean;
+  paidFrom?: AccountKey;
+  paidAt?: string;
+  paidTransactionId?: string;
+  createdAt: string;
+};
+
+export type PersistedState = {
+  baseBalances: BaseBalances;
+  transactions: Transaction[];
+  debts: Debt[];
+};

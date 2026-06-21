@@ -1,0 +1,130 @@
+Money Talks adlı kişisel finans takip uygulamamı geliştiriyoruz. Proje Windows’ta şu klasörde:
+
+C:\Users\Fuur\Desktop\mt
+
+Teknik yapı:
+
+* Next.js / React / TypeScript projesi.
+* Ana uygulama dosyası: app/page.tsx
+* Global CSS: app/globals.css
+* TypeScript tipleri: lib/types.ts
+* Logo: public/mt-logo.png
+* Daha önce constants.ts / utils.ts gibi ayırma denemeleri sorun çıkardı; şimdilik yeni dosya ayırma/refactor yapmadan ilerlemek daha güvenli.
+* Codex bazen %10 sınırı uyarısı verdiği için işlemler küçük parçalara bölünmeli.
+* Her Codex işleminde mümkünse sadece 1 hedef verilmeli.
+* Büyük refactor, component ayırma, yeni dosya oluşturma, state mantığını komple değiştirme gibi şeylerden kaçınılmalı.
+* Her değişiklikten sonra npm run lint, TypeScript --noEmit ve npm run build kontrolü yapılmalı.
+
+Şu ana kadar tamamlananlar:
+
+* Uygulamanın ilk kullanılabilir MVP/1. aşama hali oluştu.
+* Gelir, gider, borç, ödeme, geçmiş ve analiz mantığı var.
+* Ana ekran/panel çalışıyor.
+* Grafik/pasta/halkalı özetler çalışıyor.
+* Renk sistemi üzerinde düzenleme yapıldı.
+* Üstteki gelir halkasında/pasta grafikte renkler düzeltildi:
+
+  * Maaş yeşil: #22c55e
+  * Prim sarı: #eab308
+  * Bonus sarı: #eab308
+  * Ek Gelir sarı: #eab308
+  * Diğer gelir kategorileri varsayılan yeşil.
+* Bu son küçük renk değişikliği sadece app/page.tsx içinde yapıldı.
+* Gider renklerine, grafik mantığına, CSS’e ve başka özelliklere dokunulmadı.
+* Son kontroller başarılı:
+
+  * npm run lint başarılı
+  * TypeScript --noEmit başarılı
+  * npm run build başarılı
+
+Şu anki değerlendirme:
+Uygulama artık boş bir başlangıç değil; kişisel finans takibi için kullanılabilir bir ilk sürüm gibi görünüyor. Gelir/gider/borç girme, geçmiş görme ve analiz alma gibi temel işlevler mevcut. Bundan sonrası uygulamayı daha profesyonel, daha modern ve daha kullanışlı hale getirme aşaması.
+
+Şu an yapılacak yeni işler:
+
+1. Analiz sekmesindeki tarih/dönem seçimini geliştirme
+   Mevcut durumda en sağdaki Analiz sekmesinde sadece:
+
+* 06/2026
+* 07/2026
+* Tüm Zamanlar
+
+gibi seçenekler görünüyor.
+
+Burası yetersiz. Buraya daha güzel ve modern bir dönem/takvim seçici eklenmeli. Ama bunu küçük ve güvenli bir değişiklik olarak yapmak istiyorum. İlk hedef:
+
+* Analiz sekmesinde kullanıcı özel tarih aralığı seçebilsin.
+* Başlangıç tarihi ve bitiş tarihi seçilebilsin.
+* Ya da modern görünümlü ay/yıl seçici olsun.
+* Mevcut 06/2026, 07/2026 ve Tüm Zamanlar seçenekleri bozulmasın.
+* Var olan analiz hesaplama mantığı kırılmasın.
+* Mümkünse sadece app/page.tsx içinde küçük değişiklik yapılsın.
+* Büyük refactor yapılmasın.
+
+2. İşlem ve ödeme ekleme alanlarındaki takvim görünümünü modernleştirme
+   İşlemler ve Ödemeler kısmında tarih seçme alanı şu an biraz eski/default browser input gibi duruyor. Daha modern görünmeli.
+
+İstenen:
+
+* Date input alanları daha modern kart/input tasarımına uysun.
+* Mor/dark tema ile uyumlu olsun.
+* Çok büyük kütüphane eklenmesin.
+* Mümkünse native input date korunup CSS ile güzelleştirilsin.
+* Eğer yeni date picker kütüphanesi önerilecekse önce sorulsun; direkt dependency eklenmesin.
+* İlk etapta CSS/class düzeltmesiyle modern görünüm yeterli.
+
+3. Renk sistemi devamında iyileştirilecek
+   Gelir renkleri:
+
+* Maaş: yeşil
+* Prim: sarı
+* Bonus: sarı
+* Ek Gelir: sarı
+* Diğer gelirler: yeşil
+
+Giderler için ileride düşünülen renk mantığı:
+
+* Market: kırmızı/pembe
+* Yakıt: turuncu
+* Fatura: mavi/mor
+* Kira: violet
+* Diğer: gri
+
+Borç/ödeme için ileride düşünülen renk mantığı:
+
+* Borç: amber/turuncu
+* Ödendi: yeşil
+* Gecikti: kırmızı
+
+4. Daha sonraki büyük özellikler
+   Bunlar hemen yapılmayacak, sonraki aşamada:
+
+* Analiz sekmesini daha güçlü hale getirmek.
+* Farklı grafik tipleri eklemek.
+* Grafiklerin seçilebilir olması.
+* Mevcut pasta/halkalı grafiğe ek olarak akış/çizgi grafik ve bar grafik eklemek.
+* Tekrarlayan gelir sistemi:
+
+  * Maaş gibi düzenli gelirler gelecek aylara otomatik yansısın.
+  * Prim/bonus gibi değişken gelirler kullanıcı isterse tek seferlik veya tekrarlayan seçilebilsin.
+* Tekrarlayan abonelik/ödeme sistemi:
+
+  * Netflix, Spotify, YouTube vb. aylık ödemeler girilebilsin.
+  * Bitiş tarihi veya “şu aya kadar kullan sonra iptal” ayarı olsun.
+  * Gelecek ay projeksiyonlarında sadece bitiş ayına kadar hesaba katılsın.
+* Market/yakıt gibi değişken giderler otomatik geleceğe yazılmasın.
+
+Kod yazarken önemli:
+
+* Bana doğrudan komple dosya gerekiyorsa söyle.
+* Önce küçük Codex promptları hazırla.
+* Her prompt %10 sınırını aşmayacak kadar küçük olsun.
+* “Sadece şu dosyada, sadece şu kısmı değiştir” mantığıyla ilerleyelim.
+* Refactor yapma.
+* Yeni dosya oluşturma.
+* Component ayırma.
+* Var olan state, type ve hesaplama mantığını bozma.
+* Öncelik küçük, güvenli, test edilebilir adımlar.
+
+İlk istediğim şey:
+Analiz sekmesindeki dönem seçimini modernleştirmek için küçük ve güvenli bir Codex promptu hazırla. Hedef, mevcut dönem seçeneklerini bozmadan özel tarih aralığı veya daha modern ay/yıl seçimi eklemek. Büyük refactor istemiyorum.

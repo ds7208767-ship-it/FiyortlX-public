@@ -1,0 +1,21 @@
+Money Talks
+
+Kurulu:
+- Next.js
+- React
+- Tailwind
+- VS Code
+- Supabase hesabı
+
+Son durum:
+- app/page.tsx düzenlendi
+- Dashboard ekranı var
+- Toplam Varlık
+- Bu Ay Gelir
+- Bu Ay Gider
+- Kredi Kartları kartları görünüyor
+
+Sonraki adım:
+- Sol menü tasarımı
+- Hesaplar (Nakit, Banka, İstanbulkart, Multinet)
+- Supabase bağlantısı
