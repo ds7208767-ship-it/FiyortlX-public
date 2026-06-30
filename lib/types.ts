@@ -1,4 +1,4 @@
-export type TabKey = "overview" | "transaction" | "history" | "debts" | "analysis";
+export type TabKey = "overview" | "transaction" | "history" | "analysis";
 
 export type TransactionType = "income" | "expense";
 

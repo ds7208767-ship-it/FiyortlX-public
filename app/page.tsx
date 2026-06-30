@@ -22,7 +22,6 @@ const tabs: { id: TabKey; label: string }[] = [
   { id: "overview", label: "Genel" },
   { id: "transaction", label: "İşlem" },
   { id: "history", label: "Geçmiş" },
-  { id: "debts", label: "Ödemeler" },
   { id: "analysis", label: "Analiz" },
 ];
 
@@ -118,10 +117,10 @@ const pieIncomeCategoryColors: Record<string, string> = {
   "Prim": "#eab308",
   "Bonus": "#eab308",
   "Ek Gelir": "#eab308",
-  "SatÄ±ÅŸ": "#22c55e",
-  "Ä°ade": "#22c55e",
-  "Kredi KartÄ± Ã–demesi": "#22c55e",
-  "DiÄŸer Gelir": "#22c55e",
+  "Satış": "#22c55e",
+  "İade": "#22c55e",
+  "Kredi Kartı Ödemesi": "#22c55e",
+  "Diğer Gelir": "#22c55e",
 };
 
 function todayInputValue() {
@@ -129,6 +128,25 @@ function todayInputValue() {
   const offset = now.getTimezoneOffset();
   const local = new Date(now.getTime() - offset * 60 * 1000);
   return local.toISOString().slice(0, 10);
+}
+
+function dateInputFromDate(value: Date) {
+  const offset = value.getTimezoneOffset();
+  const local = new Date(value.getTime() - offset * 60 * 1000);
+  return local.toISOString().slice(0, 10);
+}
+
+function parseDateInput(value: string) {
+  const [year, month, day] = value.split("-").map(Number);
+
+  return new Date(year, month - 1, day);
+}
+
+function shiftDate(value: string, dayOffset: number) {
+  const date = parseDateInput(value);
+  date.setDate(date.getDate() + dayOffset);
+
+  return dateInputFromDate(date);
 }
 
 function createId(prefix = "id") {
@@ -184,6 +202,21 @@ function shiftMonth(value: string, offset: number) {
   return `${shiftedYear}-${String(shiftedMonth).padStart(2, "0")}`;
 }
 
+function startOfWeek(value: string) {
+  const date = parseDateInput(value);
+  const day = date.getDay();
+  const mondayOffset = day === 0 ? -6 : 1 - day;
+  date.setDate(date.getDate() + mondayOffset);
+
+  return dateInputFromDate(date);
+}
+
+function endOfMonth(monthValue: string) {
+  const [year, month] = monthValue.split("-").map(Number);
+
+  return dateInputFromDate(new Date(year, month, 0));
+}
+
 function sortByCreatedAscending(a: Transaction, b: Transaction) {
   return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
 }
@@ -217,15 +250,18 @@ export default function Home() {
   const [txAmount, setTxAmount] = useState("");
   const [txNote, setTxNote] = useState("");
   const [txDate, setTxDate] = useState(todayInputValue());
+  const [editingTransactionId, setEditingTransactionId] = useState<string | null>(null);
+  const [editType, setEditType] = useState<TransactionType>("expense");
+  const [editCategory, setEditCategory] = useState(expenseCategories[0]);
+  const [editAmount, setEditAmount] = useState("");
+  const [editNote, setEditNote] = useState("");
+  const [editDate, setEditDate] = useState(todayInputValue());
 
-  const [debtTitle, setDebtTitle] = useState("");
-  const [debtAmount, setDebtAmount] = useState("");
-  const [debtDueDate, setDebtDueDate] = useState(todayInputValue());
-  const [debtNote, setDebtNote] = useState("");
-  const [paymentAccounts, setPaymentAccounts] = useState<Record<string, AccountKey>>({});
   const [analysisMode, setAnalysisMode] = useState<AnalysisMode>("category");
-  const [analysisReferenceMonth] = useState(() => todayInputValue().slice(0, 7));
+  const [analysisReferenceDate] = useState(() => todayInputValue());
   const [analysisPeriod, setAnalysisPeriod] = useState("this-month");
+  const [analysisCustomStart, setAnalysisCustomStart] = useState("");
+  const [analysisCustomEnd, setAnalysisCustomEnd] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -302,6 +338,16 @@ export default function Home() {
     }
   }
 
+  function handleEditTransactionTypeChange(nextType: TransactionType) {
+    const nextCategories = nextType === "income" ? incomeCategories : expenseCategories;
+
+    setEditType(nextType);
+
+    if (!nextCategories.includes(editCategory)) {
+      setEditCategory(nextCategories[0]);
+    }
+  }
+
   const balances = useMemo(() => {
     let cash = baseBalances.cash;
     let bank = baseBalances.bank;
@@ -346,36 +392,89 @@ export default function Home() {
   const analysisTransactions = useMemo(() => {
     if (analysisPeriod === "all") return transactions;
 
-    const currentMonth = analysisReferenceMonth;
-    const currentYear = currentMonth.slice(0, 4);
+    const today = analysisReferenceDate;
+    const currentMonth = today.slice(0, 7);
+    const currentYear = today.slice(0, 4);
+    const nextMonth = shiftMonth(currentMonth, 1);
+    let start = "";
+    let end = "";
+
+    if (analysisPeriod === "today") {
+      start = today;
+      end = today;
+    }
+
+    if (analysisPeriod === "this-week") {
+      start = startOfWeek(today);
+      end = today;
+    }
 
     if (analysisPeriod === "this-month") {
-      return transactions.filter((item) => item.date.slice(0, 7) === currentMonth);
+      start = `${currentMonth}-01`;
+      end = today;
     }
 
-    if (analysisPeriod === "last-month") {
-      const lastMonth = shiftMonth(currentMonth, -1);
-
-      return transactions.filter((item) => item.date.slice(0, 7) === lastMonth);
+    if (analysisPeriod === "last-30-days") {
+      start = shiftDate(today, -29);
+      end = today;
     }
 
-    if (analysisPeriod === "last-3-months" || analysisPeriod === "last-6-months") {
-      const monthCount = analysisPeriod === "last-3-months" ? 3 : 6;
-      const firstMonth = shiftMonth(currentMonth, -(monthCount - 1));
+    if (analysisPeriod === "last-3-months") {
+      start = `${shiftMonth(currentMonth, -2)}-01`;
+      end = today;
+    }
 
-      return transactions.filter((item) => {
-        const month = item.date.slice(0, 7);
+    if (analysisPeriod === "last-6-months") {
+      start = `${shiftMonth(currentMonth, -5)}-01`;
+      end = today;
+    }
 
-        return month >= firstMonth && month <= currentMonth;
-      });
+    if (analysisPeriod === "last-12-months") {
+      start = `${shiftMonth(currentMonth, -11)}-01`;
+      end = today;
     }
 
     if (analysisPeriod === "this-year") {
-      return transactions.filter((item) => item.date.slice(0, 4) === currentYear);
+      start = `${currentYear}-01-01`;
+      end = today;
     }
 
-    return transactions.filter((item) => item.date.slice(0, 7) === analysisPeriod);
-  }, [analysisPeriod, analysisReferenceMonth, transactions]);
+    if (analysisPeriod === "next-month") {
+      start = `${nextMonth}-01`;
+      end = endOfMonth(nextMonth);
+    }
+
+    if (analysisPeriod === "next-3-months") {
+      start = `${nextMonth}-01`;
+      end = endOfMonth(shiftMonth(currentMonth, 3));
+    }
+
+    if (analysisPeriod === "next-6-months") {
+      start = `${nextMonth}-01`;
+      end = endOfMonth(shiftMonth(currentMonth, 6));
+    }
+
+    if (analysisPeriod === "until-year-end") {
+      start = today;
+      end = `${currentYear}-12-31`;
+    }
+
+    if (analysisPeriod === "custom") {
+      start = analysisCustomStart;
+      end = analysisCustomEnd;
+
+      if (start && end && start > end) {
+        [start, end] = [end, start];
+      }
+    }
+
+    return transactions.filter((item) => {
+      if (start && item.date < start) return false;
+      if (end && item.date > end) return false;
+
+      return true;
+    });
+  }, [analysisCustomEnd, analysisCustomStart, analysisPeriod, analysisReferenceDate, transactions]);
 
   const transactionSummary = useMemo(() => {
     let totalIncome = 0;
@@ -392,18 +491,6 @@ export default function Home() {
       netFlow: totalIncome - totalExpense,
     };
   }, [analysisTransactions]);
-
-  const debtSummary = useMemo(() => {
-    const unpaid = debts.filter((item) => !item.paid);
-    const paid = debts.filter((item) => item.paid);
-
-    return {
-      unpaidTotal: unpaid.reduce((sum, item) => sum + item.amount, 0),
-      paidTotal: paid.reduce((sum, item) => sum + item.amount, 0),
-      unpaidCount: unpaid.length,
-      paidCount: paid.length,
-    };
-  }, [debts]);
 
   const categoryData = useMemo(() => {
     const grouped: Record<string, number> = {};
@@ -498,14 +585,6 @@ export default function Home() {
     return [...transactions].sort(sortByDateNewest);
   }, [transactions]);
 
-  const sortedDebts = useMemo(() => {
-    return [...debts].sort((a, b) => {
-      if (a.paid !== b.paid) return a.paid ? 1 : -1;
-
-      return new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime();
-    });
-  }, [debts]);
-
   function updateBaseBalance(key: keyof BaseBalances, rawValue: string) {
     const parsed = parseAmountInput(rawValue);
 
@@ -569,117 +648,47 @@ export default function Home() {
     setTransactions((current) => current.filter((item) => item.id !== transactionId));
   }
 
-  function addDebt(event: React.FormEvent<HTMLFormElement>) {
+  function openEditTransaction(transaction: Transaction) {
+    setEditingTransactionId(transaction.id);
+    setEditType(transaction.type);
+    setEditCategory(transaction.category);
+    setEditAmount(String(transaction.amount));
+    setEditNote(transaction.note);
+    setEditDate(transaction.date);
+  }
+
+  function closeEditTransaction() {
+    setEditingTransactionId(null);
+  }
+
+  function saveEditedTransaction(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    const amount = parseAmountInput(debtAmount);
+    if (!editingTransactionId) return;
 
-    if (!debtTitle.trim()) {
-      alert("Ödeme adı boş olamaz.");
-      return;
-    }
+    const amount = parseAmountInput(editAmount);
 
     if (!Number.isFinite(amount) || amount <= 0) {
-      alert("Ödeme tutarı 0'dan büyük olmalı.");
+      alert("Tutar 0'dan büyük olmalı.");
       return;
     }
 
-    const newDebt: Debt = {
-      id: createId("debt"),
-      title: debtTitle.trim(),
-      amount,
-      dueDate: debtDueDate || todayInputValue(),
-      note: debtNote.trim(),
-      paid: false,
-      createdAt: new Date().toISOString(),
-    };
-
-    setDebts((current) => [newDebt, ...current]);
-
-    setDebtTitle("");
-    setDebtAmount("");
-    setDebtDueDate(todayInputValue());
-    setDebtNote("");
-  }
-
-  function payDebt(debtId: string) {
-    const target = debts.find((item) => item.id === debtId);
-
-    if (!target || target.paid) return;
-
-    const paidFrom = paymentAccounts[debtId] ?? "bank";
-    const transactionId = createId("tx");
-
-    const paymentTransaction: Transaction = {
-      id: transactionId,
-      date: todayInputValue(),
-      type: "expense",
-      account: paidFrom,
-      category: "Borç / Taksit Ödemesi",
-      amount: target.amount,
-      note: target.note
-        ? `${target.title} ödendi. Not: ${target.note}`
-        : `${target.title} ödendi.`,
-      createdAt: new Date().toISOString(),
-      source: "debtPayment",
-      debtId: target.id,
-    };
-
-    setTransactions((current) => [paymentTransaction, ...current]);
-
-    setDebts((current) =>
-      current.map((debt) => {
-        if (debt.id !== debtId) return debt;
+    setTransactions((current) =>
+      current.map((item) => {
+        if (item.id !== editingTransactionId) return item;
 
         return {
-          ...debt,
-          paid: true,
-          paidFrom,
-          paidAt: todayInputValue(),
-          paidTransactionId: transactionId,
+          ...item,
+          date: editDate || todayInputValue(),
+          type: editType,
+          category: editCategory,
+          amount,
+          note: editNote.trim(),
         };
       }),
     );
-  }
 
-  function undoDebtPayment(debtId: string) {
-    const target = debts.find((item) => item.id === debtId);
-
-    if (!target) return;
-
-    if (target.paidTransactionId) {
-      setTransactions((current) =>
-        current.filter((item) => item.id !== target.paidTransactionId),
-      );
-    }
-
-    setDebts((current) =>
-      current.map((debt) => {
-        if (debt.id !== debtId) return debt;
-
-        return {
-          ...debt,
-          paid: false,
-          paidFrom: undefined,
-          paidAt: undefined,
-          paidTransactionId: undefined,
-        };
-      }),
-    );
-  }
-
-  function deleteDebt(debtId: string) {
-    const target = debts.find((item) => item.id === debtId);
-
-    if (!target) return;
-
-    if (target.paidTransactionId) {
-      setTransactions((current) =>
-        current.filter((item) => item.id !== target.paidTransactionId),
-      );
-    }
-
-    setDebts((current) => current.filter((item) => item.id !== debtId));
+    closeEditTransaction();
   }
 
   return (
@@ -892,204 +901,140 @@ export default function Home() {
             ) : (
               <div className="list">
                 {sortedTransactions.map((item) => (
-                  <div className="listItem" key={item.id}>
-                    <div>
-                      <div className="listTitle">
-                        <span className={`pill ${item.type}`}>
-                          {item.type === "income" ? "Gelir" : "Gider"}
-                        </span>
-                        <span>{item.category}</span>
-                        {item.source === "debtPayment" && <span className="pill">Ödeme</span>}
+                  <div className="historyEntry" key={item.id}>
+                    <div className="listItem">
+                      <div>
+                        <div className="listTitle">
+                          <span className={`pill ${item.type}`}>
+                            {item.type === "income" ? "Gelir" : "Gider"}
+                          </span>
+                          <span>{item.category}</span>
+                          {item.source === "debtPayment" && <span className="pill">Ödeme</span>}
+                        </div>
+
+                        <div className="meta">
+                          <span>{formatDate(item.date)}</span>
+                          <span>{accountLabels[item.account]}</span>
+                        </div>
+
+                        {item.note && <p className="note">{item.note}</p>}
                       </div>
 
-                      <div className="meta">
-                        <span>{formatDate(item.date)}</span>
-                        <span>{accountLabels[item.account]}</span>
-                      </div>
+                      <div>
+                        <div className={`amount ${item.type}`}>
+                          {item.type === "income" ? "+" : "-"}
+                          {formatMoney(item.amount)}
+                        </div>
 
-                      {item.note && <p className="note">{item.note}</p>}
+                        <div className="buttonRow transactionActions">
+                          <button
+                            className="btn info small"
+                            type="button"
+                            onClick={() => openEditTransaction(item)}
+                          >
+                            Düzenle
+                          </button>
+                          <button
+                            className="btn danger small"
+                            type="button"
+                            onClick={() => undoTransaction(item.id)}
+                          >
+                            Geri Al
+                          </button>
+                        </div>
+                      </div>
                     </div>
 
-                    <div>
-                      <div className={`amount ${item.type}`}>
-                        {item.type === "income" ? "+" : "-"}
-                        {formatMoney(item.amount)}
-                      </div>
+                    {editingTransactionId === item.id && (
+                      <form
+                        onSubmit={saveEditedTransaction}
+                        className="sectionStack editTransactionPanel"
+                        aria-label="İşlemi düzenle"
+                      >
+                        <div className="editPanelHeader">
+                          <h3>İşlemi Düzenle</h3>
+                          <p>Seçili işlem bilgilerini güncelle.</p>
+                        </div>
 
-                      <div className="buttonRow" style={{ justifyContent: "flex-end" }}>
-                        <button
-                          className="btn danger small"
-                          type="button"
-                          onClick={() => undoTransaction(item.id)}
-                        >
-                          Geri Al
-                        </button>
-                      </div>
-                    </div>
+                        <div className="formGrid editFormGrid">
+                          <div className="field">
+                            <label>İşlem Tipi</label>
+                            <select
+                              value={editType}
+                              onChange={(event) =>
+                                handleEditTransactionTypeChange(event.target.value as TransactionType)
+                              }
+                            >
+                              <option value="expense">Gider</option>
+                              <option value="income">Gelir / Ödeme</option>
+                            </select>
+                          </div>
+
+                          <div className="field">
+                            <label>Kategori</label>
+                            <select
+                              value={editCategory}
+                              onChange={(event) => setEditCategory(event.target.value)}
+                            >
+                              {[
+                                ...new Set([
+                                  ...(editType === "income" ? incomeCategories : expenseCategories),
+                                  editCategory,
+                                ]),
+                              ].map((category) => (
+                                <option key={category} value={category}>
+                                  {category}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+
+                          <div className="field">
+                            <label>Tutar</label>
+                            <input
+                              type="number"
+                              inputMode="decimal"
+                              min="0"
+                              step="0.01"
+                              value={editAmount}
+                              onChange={(event) => setEditAmount(event.target.value)}
+                              placeholder="0"
+                            />
+                          </div>
+
+                          <div className="field">
+                            <label>Tarih</label>
+                            <input
+                              type="date"
+                              value={editDate}
+                              onChange={(event) => setEditDate(event.target.value)}
+                            />
+                          </div>
+
+                          <div className="field full">
+                            <label>Açıklama</label>
+                            <textarea
+                              value={editNote}
+                              onChange={(event) => setEditNote(event.target.value)}
+                              placeholder="İsteğe bağlı not..."
+                            />
+                          </div>
+                        </div>
+
+                        <div className="buttonRow editActions">
+                          <button className="btn success" type="submit">
+                            Kaydet
+                          </button>
+                          <button className="btn secondary" type="button" onClick={closeEditTransaction}>
+                            İptal
+                          </button>
+                        </div>
+                      </form>
+                    )}
                   </div>
                 ))}
               </div>
             )}
-          </section>
-        )}
-
-        {activeTab === "debts" && (
-          <section className="sectionStack">
-            <div className="grid cards">
-              <ReadonlyMoneyCard
-                label="Bekleyen Ödeme"
-                value={formatMoney(debtSummary.unpaidTotal)}
-              />
-              <ReadonlyMoneyCard
-                label="Tamamlanan Ödeme"
-                value={formatMoney(debtSummary.paidTotal)}
-              />
-              <ReadonlyMoneyCard label="Açık Kayıt" value={String(debtSummary.unpaidCount)} />
-              <ReadonlyMoneyCard label="Kart Borcu" value={formatMoney(balances.creditDebt)} />
-            </div>
-
-            <div className="panel">
-              <div className="sectionHeader">
-                <div>
-                  <h2>Ödeme / Taksit Ekle</h2>
-                  <p>Ödeme yaparken hesabı seçebilirsin.</p>
-                </div>
-              </div>
-
-              <form onSubmit={addDebt} className="sectionStack">
-                <div className="formGrid">
-                  <div className="field">
-                    <label>Ödeme Adı</label>
-                    <input
-                      value={debtTitle}
-                      onChange={(event) => setDebtTitle(event.target.value)}
-                      placeholder="Örn: Araç sigortası"
-                    />
-                  </div>
-
-                  <div className="field">
-                    <label>Tutar</label>
-                    <input
-                      type="number"
-                      inputMode="decimal"
-                      min="0"
-                      step="0.01"
-                      value={debtAmount}
-                      onChange={(event) => setDebtAmount(event.target.value)}
-                      placeholder="0"
-                    />
-                  </div>
-
-                  <div className="field">
-                    <label>Tarih</label>
-                    <input
-                      type="date"
-                      value={debtDueDate}
-                      onChange={(event) => setDebtDueDate(event.target.value)}
-                    />
-                  </div>
-
-                  <div className="field full">
-                    <label>Not</label>
-                    <textarea
-                      value={debtNote}
-                      onChange={(event) => setDebtNote(event.target.value)}
-                      placeholder="İsteğe bağlı not..."
-                    />
-                  </div>
-                </div>
-
-                <div className="buttonRow">
-                  <button className="btn" type="submit">
-                    Ödeme Ekle
-                  </button>
-                </div>
-              </form>
-            </div>
-
-            <div className="panel">
-              <div className="sectionHeader">
-                <div>
-                  <h2>Ödemeler / Taksitler</h2>
-                  <p>Ödendi yapınca geçmişe otomatik gider eklenir.</p>
-                </div>
-              </div>
-
-              {sortedDebts.length === 0 ? (
-                <Empty text="Henüz ödeme/taksit kaydı yok." />
-              ) : (
-                <div className="list">
-                  {sortedDebts.map((debt) => (
-                    <div className="listItem" key={debt.id}>
-                      <div>
-                        <div className="listTitle">
-                          <span className={`pill ${debt.paid ? "paid" : "unpaid"}`}>
-                            {debt.paid ? "Ödendi" : "Ödenmedi"}
-                          </span>
-                          <span>{debt.title}</span>
-                        </div>
-
-                        <div className="meta">
-                          <span>{formatDate(debt.dueDate)}</span>
-                          <span>{formatMoney(debt.amount)}</span>
-                          {debt.paidFrom && <span>{accountLabels[debt.paidFrom]}</span>}
-                          {debt.paidAt && <span>{formatDate(debt.paidAt)}</span>}
-                        </div>
-
-                        {debt.note && <p className="note">{debt.note}</p>}
-                      </div>
-
-                      <div className="debtActions">
-                        {!debt.paid && (
-                          <select
-                            className="paymentSelect"
-                            value={paymentAccounts[debt.id] ?? "bank"}
-                            onChange={(event) =>
-                              setPaymentAccounts((current) => ({
-                                ...current,
-                                [debt.id]: event.target.value as AccountKey,
-                              }))
-                            }
-                          >
-                            {accountOptions.map((account) => (
-                              <option key={account} value={account}>
-                                {accountLabels[account]}
-                              </option>
-                            ))}
-                          </select>
-                        )}
-
-                        {debt.paid ? (
-                          <button
-                            className="btn danger small"
-                            type="button"
-                            onClick={() => undoDebtPayment(debt.id)}
-                          >
-                            Geri Al
-                          </button>
-                        ) : (
-                          <button
-                            className="btn success small"
-                            type="button"
-                            onClick={() => payDebt(debt.id)}
-                          >
-                            Ödendi Yap
-                          </button>
-                        )}
-
-                        <button
-                          className="btn danger small"
-                          type="button"
-                          onClick={() => deleteDebt(debt.id)}
-                        >
-                          Sil
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
           </section>
         )}
 
@@ -1109,20 +1054,60 @@ export default function Home() {
                   <p>Bir görünüm seç.</p>
                 </div>
 
-                <div className="analysisPeriodField">
-                  <label htmlFor="analysis-period">Dönem</label>
-                  <select
-                    id="analysis-period"
-                    value={analysisPeriod}
-                    onChange={(event) => setAnalysisPeriod(event.target.value)}
-                  >
-                    <option value="this-month">Bu Ay</option>
-                    <option value="last-month">Geçen Ay</option>
-                    <option value="last-3-months">Son 3 Ay</option>
-                    <option value="last-6-months">Son 6 Ay</option>
-                    <option value="this-year">Bu Yıl</option>
-                    <option value="all">Tüm Zamanlar</option>
-                  </select>
+                <div className="analysisFilters">
+                  <div className="analysisPeriodField">
+                    <label htmlFor="analysis-period">Dönem</label>
+                    <select
+                      id="analysis-period"
+                      value={analysisPeriod}
+                      onChange={(event) => setAnalysisPeriod(event.target.value)}
+                    >
+                      <optgroup label="Geçmiş">
+                        <option value="today">Bugün</option>
+                        <option value="this-week">Bu Hafta</option>
+                        <option value="this-month">Bu Ay</option>
+                        <option value="last-30-days">Son 30 Gün</option>
+                        <option value="last-3-months">Son 3 Ay</option>
+                        <option value="last-6-months">Son 6 Ay</option>
+                        <option value="last-12-months">Son 12 Ay</option>
+                        <option value="this-year">Bu Yıl</option>
+                        <option value="all">Tüm Zamanlar</option>
+                      </optgroup>
+                      <optgroup label="Gelecek">
+                        <option value="next-month">Gelecek Ay</option>
+                        <option value="next-3-months">Sonraki 3 Ay</option>
+                        <option value="next-6-months">Sonraki 6 Ay</option>
+                        <option value="until-year-end">Yıl Sonuna Kadar</option>
+                      </optgroup>
+                      <optgroup label="Özel">
+                        <option value="custom">Özel Tarih Aralığı</option>
+                      </optgroup>
+                    </select>
+                  </div>
+
+                  {analysisPeriod === "custom" && (
+                    <div className="customDateFields">
+                      <div className="field">
+                        <label htmlFor="analysis-start">Başlangıç</label>
+                        <input
+                          id="analysis-start"
+                          type="date"
+                          value={analysisCustomStart}
+                          onChange={(event) => setAnalysisCustomStart(event.target.value)}
+                        />
+                      </div>
+
+                      <div className="field">
+                        <label htmlFor="analysis-end">Bitiş</label>
+                        <input
+                          id="analysis-end"
+                          type="date"
+                          value={analysisCustomEnd}
+                          onChange={(event) => setAnalysisCustomEnd(event.target.value)}
+                        />
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
 
