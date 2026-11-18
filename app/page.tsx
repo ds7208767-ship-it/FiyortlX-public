@@ -2,6 +2,9 @@
 
 import Image from "next/image";
 import { useEffect, useMemo, useState } from "react";
+import type { User } from "@supabase/supabase-js";
+import { supabase } from "../lib/supabase";
+import AuthScreen from "./AuthScreen";
 
 import type {
   AccountKey,
@@ -14,9 +17,7 @@ import type {
   TransactionType,
 } from "../lib/types";
 
-
-
-const STORAGE_KEY = "money-talks-app-v4";
+const STORAGE_KEY = "fiyortx-app-v4";
 
 const tabs: { id: TabKey; label: string }[] = [
   { id: "overview", label: "Genel" },
@@ -66,18 +67,18 @@ const expenseCategories = [
 ];
 
 const chartColors = [
-  "#8b5cf6",
-  "#a855f7",
-  "#c084fc",
-  "#7c3aed",
-  "#6d28d9",
-  "#22c55e",
-  "#ef4444",
-  "#38bdf8",
-  "#f472b6",
-  "#14b8a6",
-  "#f97316",
-  "#e879f9",
+  "#0284C7",
+  "#0EA5E9",
+  "#38BDF8",
+  "#0369A1",
+  "#06B6D4",
+  "#059669",
+  "#DC2626",
+  "#2563EB",
+  "#0D9488",
+  "#1D4ED8",
+  "#F97316",
+  "#475569",
 ];
 
 const incomeCategoryColors: Record<string, string> = {
@@ -138,35 +139,20 @@ function dateInputFromDate(value: Date) {
 
 function parseDateInput(value: string) {
   const [year, month, day] = value.split("-").map(Number);
-
   return new Date(year, month - 1, day);
 }
 
 function shiftDate(value: string, dayOffset: number) {
   const date = parseDateInput(value);
   date.setDate(date.getDate() + dayOffset);
-
   return dateInputFromDate(date);
 }
 
-function createId(prefix = "id") {
-  if (typeof globalThis.crypto?.randomUUID === "function") {
-    return globalThis.crypto.randomUUID();
-  }
-
-  return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-}
-
-function parseAmountInput(value: string) {
-  const cleaned = value.trim().replace(/\s/g, "");
-
-  if (!cleaned) return 0;
-
-  if (cleaned.includes(",") && cleaned.includes(".")) {
-    return Number(cleaned.replace(/\./g, "").replace(",", "."));
-  }
-
-  return Number(cleaned.replace(",", "."));
+function formatPercent(value: number) {
+  const safeValue = Number.isFinite(value) ? value : 0;
+  return `%${new Intl.NumberFormat("tr-TR", {
+    maximumFractionDigits: 1,
+  }).format(safeValue)}`;
 }
 
 function formatMoney(value: number) {
@@ -177,19 +163,22 @@ function formatMoney(value: number) {
   }).format(Number.isFinite(value) ? value : 0);
 }
 
+function formatSignedMoney(value: number) {
+  if (value > 0) return `+${formatMoney(value)}`;
+  if (value < 0) return `-${formatMoney(Math.abs(value))}`;
+  return formatMoney(0);
+}
+
 function formatDate(value: string) {
   if (!value) return "-";
-
   const [year, month, day] = value.split("-");
   if (!year || !month || !day) return value;
-
   return `${day}.${month}.${year}`;
 }
 
 function formatMonth(value: string) {
   const [year, month] = value.split("-");
   if (!year || !month) return value;
-
   return `${month}.${year}`;
 }
 
@@ -198,7 +187,6 @@ function shiftMonth(value: string, offset: number) {
   const monthIndex = year * 12 + month - 1 + offset;
   const shiftedYear = Math.floor(monthIndex / 12);
   const shiftedMonth = monthIndex - shiftedYear * 12 + 1;
-
   return `${shiftedYear}-${String(shiftedMonth).padStart(2, "0")}`;
 }
 
@@ -207,14 +195,18 @@ function startOfWeek(value: string) {
   const day = date.getDay();
   const mondayOffset = day === 0 ? -6 : 1 - day;
   date.setDate(date.getDate() + mondayOffset);
-
   return dateInputFromDate(date);
 }
 
 function endOfMonth(monthValue: string) {
   const [year, month] = monthValue.split("-").map(Number);
-
   return dateInputFromDate(new Date(year, month, 0));
+}
+
+function previousYearDate(value: string) {
+  const [year, month, day] = value.split("-").map(Number);
+  const date = new Date(year - 1, month - 1, day);
+  return dateInputFromDate(date);
 }
 
 function sortByCreatedAscending(a: Transaction, b: Transaction) {
@@ -223,13 +215,190 @@ function sortByCreatedAscending(a: Transaction, b: Transaction) {
 
 function sortByDateNewest(a: Transaction, b: Transaction) {
   const dateDiff = new Date(b.date).getTime() - new Date(a.date).getTime();
-
   if (dateDiff !== 0) return dateDiff;
-
   return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
 }
 
+function summarizeTransactions(items: Transaction[]) {
+  let totalIncome = 0;
+  let totalExpense = 0;
+  const expenseByCategory: Record<string, number> = {};
+
+  for (const item of items) {
+    if (item.type === "income") totalIncome += item.amount;
+    if (item.type === "expense") {
+      totalExpense += item.amount;
+      expenseByCategory[item.category] = (expenseByCategory[item.category] ?? 0) + item.amount;
+    }
+  }
+
+  return {
+    totalIncome,
+    totalExpense,
+    netFlow: totalIncome - totalExpense,
+    transactionCount: items.length,
+    expenseByCategory,
+  };
+}
+
+function formatTrendPercent(current: number, previous: number) {
+  if (previous === 0 && current > 0) return "+∞%";
+  if (previous === 0) return "%0";
+  const change = ((current - previous) / previous) * 100;
+  const formatted = formatPercent(Math.abs(change));
+  if (change > 0) return `+${formatted}`;
+  if (change < 0) return `-${formatted}`;
+  return "%0";
+}
+
+function getTrendTone(current: number, previous: number) {
+  if (current > previous) return "positive";
+  if (current < previous) return "negative";
+  return "neutral";
+}
+
+function buildTrendLabel(current: number, previous: number, risingLabel: string, fallingLabel: string) {
+  if (current > previous) return risingLabel;
+  if (current < previous) return fallingLabel;
+  return "Değişim yok";
+}
+
+function getTrendComparisonRange(
+  analysisPeriod: string,
+  analysisReferenceDate: string,
+  analysisCustomStart: string,
+  analysisCustomEnd: string,
+) {
+  if (analysisPeriod === "all") return null;
+
+  const today = analysisReferenceDate;
+  const currentMonth = today.slice(0, 7);
+  const currentYear = today.slice(0, 4);
+  const nextMonth = shiftMonth(currentMonth, 1);
+  let currentStart = "";
+  let currentEnd = "";
+  let previousStart = "";
+  let previousEnd = "";
+
+  if (analysisPeriod === "today") {
+    currentStart = today;
+    currentEnd = today;
+    previousStart = shiftDate(today, -1);
+    previousEnd = previousStart;
+  }
+  if (analysisPeriod === "this-week") {
+    currentStart = startOfWeek(today);
+    currentEnd = today;
+    previousStart = shiftDate(currentStart, -7);
+    previousEnd = shiftDate(currentStart, -1);
+  }
+  if (analysisPeriod === "this-month") {
+    const previousMonth = shiftMonth(currentMonth, -1);
+    currentStart = `${currentMonth}-01`;
+    currentEnd = today;
+    previousStart = `${previousMonth}-01`;
+    previousEnd = endOfMonth(previousMonth);
+  }
+  if (analysisPeriod === "last-30-days") {
+    currentStart = shiftDate(today, -29);
+    currentEnd = today;
+    previousStart = shiftDate(currentStart, -30);
+    previousEnd = shiftDate(currentStart, -1);
+  }
+  if (analysisPeriod === "last-3-months") {
+    currentStart = `${shiftMonth(currentMonth, -2)}-01`;
+    currentEnd = today;
+    previousStart = `${shiftMonth(currentMonth, -5)}-01`;
+    previousEnd = endOfMonth(shiftMonth(currentMonth, -3));
+  }
+  if (analysisPeriod === "last-6-months") {
+    currentStart = `${shiftMonth(currentMonth, -5)}-01`;
+    currentEnd = today;
+    previousStart = `${shiftMonth(currentMonth, -11)}-01`;
+    previousEnd = endOfMonth(shiftMonth(currentMonth, -6));
+  }
+  if (analysisPeriod === "last-12-months") {
+    currentStart = `${shiftMonth(currentMonth, -11)}-01`;
+    currentEnd = today;
+    previousStart = `${shiftMonth(currentMonth, -23)}-01`;
+    previousEnd = endOfMonth(shiftMonth(currentMonth, -12));
+  }
+  if (analysisPeriod === "this-year") {
+    currentStart = `${currentYear}-01-01`;
+    currentEnd = today;
+    previousStart = `${Number(currentYear) - 1}-01-01`;
+    previousEnd = previousYearDate(today);
+  }
+  if (analysisPeriod === "next-month") {
+    currentStart = `${nextMonth}-01`;
+    currentEnd = endOfMonth(nextMonth);
+    previousStart = `${currentMonth}-01`;
+    previousEnd = endOfMonth(currentMonth);
+  }
+  if (analysisPeriod === "next-3-months") {
+    currentStart = `${nextMonth}-01`;
+    currentEnd = endOfMonth(shiftMonth(currentMonth, 3));
+    previousStart = `${shiftMonth(currentMonth, -2)}-01`;
+    previousEnd = endOfMonth(currentMonth);
+  }
+  if (analysisPeriod === "next-6-months") {
+    currentStart = `${nextMonth}-01`;
+    currentEnd = endOfMonth(shiftMonth(currentMonth, 6));
+    previousStart = `${shiftMonth(currentMonth, -5)}-01`;
+    previousEnd = endOfMonth(currentMonth);
+  }
+  if (analysisPeriod === "until-year-end") {
+    currentStart = today;
+    currentEnd = `${currentYear}-12-31`;
+  }
+  if (analysisPeriod === "custom") {
+    currentStart = analysisCustomStart;
+    currentEnd = analysisCustomEnd;
+    if (currentStart && currentEnd && currentStart > currentEnd) {
+      [currentStart, currentEnd] = [currentEnd, currentStart];
+    }
+  }
+
+  if (!currentStart || !currentEnd) return null;
+
+  if (!previousStart || !previousEnd) {
+    const dayCount =
+      Math.round(
+        (parseDateInput(currentEnd).getTime() - parseDateInput(currentStart).getTime()) /
+          (24 * 60 * 60 * 1000),
+      ) + 1;
+    previousStart = shiftDate(currentStart, -dayCount);
+    previousEnd = shiftDate(currentStart, -1);
+  }
+
+  return {
+    currentStart,
+    currentEnd,
+    previousStart,
+    previousEnd,
+  };
+}
+
+function parseAmountInput(value: string) {
+  const cleaned = value.trim().replace(/\s/g, "");
+  if (!cleaned) return 0;
+  if (cleaned.includes(",") && cleaned.includes(".")) {
+    return Number(cleaned.replace(/\./g, "").replace(",", "."));
+  }
+  return Number(cleaned.replace(",", "."));
+}
+
+function createId(prefix = "id") {
+  if (typeof globalThis.crypto?.randomUUID === "function") {
+    return globalThis.crypto.randomUUID();
+  }
+  return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
 export default function Home() {
+  const [user, setUser] = useState<User | null>(null);
+  const [authReady, setAuthReady] = useState(false);
+
   const [activeTab, setActiveTab] = useState<TabKey>("overview");
   const [loaded, setLoaded] = useState(false);
 
@@ -263,61 +432,95 @@ export default function Home() {
   const [analysisCustomStart, setAnalysisCustomStart] = useState("");
   const [analysisCustomEnd, setAnalysisCustomEnd] = useState("");
 
+  // 0. KULLANICI OTURUMUNU DİNLEME
   useEffect(() => {
-    let cancelled = false;
-    let savedBalances: BaseBalances | undefined;
-    let savedTransactions: Transaction[] | undefined;
-    let savedDebts: Debt[] | undefined;
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setUser(session?.user ?? null);
+      setAuthReady(true);
+    });
 
-    try {
-      const raw =
-        localStorage.getItem(STORAGE_KEY) ??
-        localStorage.getItem("money-talks-app-v3") ??
-        localStorage.getItem("money-talks-app-v2") ??
-        localStorage.getItem("money-talks-app-v1");
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null);
+      setAuthReady(true);
+    });
 
-      if (raw) {
-        const saved = JSON.parse(raw) as Partial<PersistedState>;
+    return () => subscription.unsubscribe();
+  }, []);
 
-        if (saved.baseBalances) {
-          savedBalances = {
-            cash: Number(saved.baseBalances.cash ?? 0),
-            bank: Number(saved.baseBalances.bank ?? 0),
-            benefit: Number(saved.baseBalances.benefit ?? 0),
-            savings: Number(saved.baseBalances.savings ?? 0),
-            creditDebt: Number(saved.baseBalances.creditDebt ?? 0),
-          };
-        }
-
-        if (Array.isArray(saved.transactions)) {
-          savedTransactions = saved.transactions;
-        }
-
-        if (Array.isArray(saved.debts)) {
-          savedDebts = saved.debts;
-        }
-      }
-    } catch {
-      localStorage.removeItem(STORAGE_KEY);
+  // 1. GİRİŞ YAPAN KULLANICININ VERİLERİNİ SUPABASE'DEN ÇEKME
+  useEffect(() => {
+    if (!user) {
+      setLoaded(false);
+      return;
     }
 
-    queueMicrotask(() => {
-      if (cancelled) return;
+    let cancelled = false;
 
-      if (savedBalances) setBaseBalances(savedBalances);
-      if (savedTransactions) setTransactions(savedTransactions);
-      if (savedDebts) setDebts(savedDebts);
-      setLoaded(true);
+    async function loadFromSupabase() {
+      try {
+        const [balanceRes, txRes, debtRes] = await Promise.all([
+          supabase.from("base_balances").select("*").eq("user_id", user!.id).maybeSingle(),
+          supabase.from("transactions").select("*").eq("user_id", user!.id),
+          supabase.from("debts").select("*").eq("user_id", user!.id),
+        ]);
 
-    });
+        if (cancelled) return;
+
+        const dbBalances: BaseBalances = {
+          cash: Number(balanceRes.data?.cash ?? 0),
+          bank: Number(balanceRes.data?.bank ?? 0),
+          benefit: Number(balanceRes.data?.benefit ?? 0),
+          savings: Number(balanceRes.data?.savings ?? 0),
+          creditDebt: Number(balanceRes.data?.credit_debt ?? 0),
+        };
+
+        const dbTransactions: Transaction[] = (txRes.data ?? []).map((row: any) => ({
+          id: String(row.id),
+          date: String(row.date),
+          type: row.type as TransactionType,
+          account: row.account as AccountKey,
+          category: String(row.category),
+          amount: Number(row.amount),
+          note: String(row.note ?? ""),
+          createdAt: String(row.created_at),
+          source: (row.source as "manual" | "debtPayment") ?? "manual",
+          debtId: row.debt_id ? String(row.debt_id) : undefined,
+        }));
+
+        const dbDebts: Debt[] = (debtRes.data ?? []).map((row: any) => ({
+          id: String(row.id),
+          title: String(row.title),
+          amount: Number(row.amount),
+          dueDate: String(row.due_date),
+          note: String(row.note ?? ""),
+          paid: Boolean(row.paid),
+          paidFrom: row.paid_from as AccountKey | undefined,
+          paidAt: row.paid_at ? String(row.paid_at) : undefined,
+          paidTransactionId: row.paid_transaction_id ? String(row.paid_transaction_id) : undefined,
+          createdAt: String(row.created_at),
+        }));
+
+        setBaseBalances(dbBalances);
+        setTransactions(dbTransactions);
+        setDebts(dbDebts);
+        setLoaded(true);
+      } catch (err) {
+        console.error("Supabase yükleme hatası:", err);
+        setLoaded(true);
+      }
+    }
+
+    loadFromSupabase();
 
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [user]);
 
   useEffect(() => {
-    if (!loaded) return;
+    if (!loaded || !user) return;
 
     const data: PersistedState = {
       baseBalances,
@@ -326,13 +529,11 @@ export default function Home() {
     };
 
     localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-  }, [baseBalances, transactions, debts, loaded]);
+  }, [baseBalances, transactions, debts, loaded, user]);
 
   function handleTransactionTypeChange(nextType: TransactionType) {
     const nextCategories = nextType === "income" ? incomeCategories : expenseCategories;
-
     setTxType(nextType);
-
     if (!nextCategories.includes(txCategory)) {
       setTxCategory(nextCategories[0]);
     }
@@ -340,9 +541,7 @@ export default function Home() {
 
   function handleEditTransactionTypeChange(nextType: TransactionType) {
     const nextCategories = nextType === "income" ? incomeCategories : expenseCategories;
-
     setEditType(nextType);
-
     if (!nextCategories.includes(editCategory)) {
       setEditCategory(nextCategories[0]);
     }
@@ -403,66 +602,53 @@ export default function Home() {
       start = today;
       end = today;
     }
-
     if (analysisPeriod === "this-week") {
       start = startOfWeek(today);
       end = today;
     }
-
     if (analysisPeriod === "this-month") {
       start = `${currentMonth}-01`;
       end = today;
     }
-
     if (analysisPeriod === "last-30-days") {
       start = shiftDate(today, -29);
       end = today;
     }
-
     if (analysisPeriod === "last-3-months") {
       start = `${shiftMonth(currentMonth, -2)}-01`;
       end = today;
     }
-
     if (analysisPeriod === "last-6-months") {
       start = `${shiftMonth(currentMonth, -5)}-01`;
       end = today;
     }
-
     if (analysisPeriod === "last-12-months") {
       start = `${shiftMonth(currentMonth, -11)}-01`;
       end = today;
     }
-
     if (analysisPeriod === "this-year") {
       start = `${currentYear}-01-01`;
       end = today;
     }
-
     if (analysisPeriod === "next-month") {
       start = `${nextMonth}-01`;
       end = endOfMonth(nextMonth);
     }
-
     if (analysisPeriod === "next-3-months") {
       start = `${nextMonth}-01`;
       end = endOfMonth(shiftMonth(currentMonth, 3));
     }
-
     if (analysisPeriod === "next-6-months") {
       start = `${nextMonth}-01`;
       end = endOfMonth(shiftMonth(currentMonth, 6));
     }
-
     if (analysisPeriod === "until-year-end") {
       start = today;
       end = `${currentYear}-12-31`;
     }
-
     if (analysisPeriod === "custom") {
       start = analysisCustomStart;
       end = analysisCustomEnd;
-
       if (start && end && start > end) {
         [start, end] = [end, start];
       }
@@ -471,7 +657,6 @@ export default function Home() {
     return transactions.filter((item) => {
       if (start && item.date < start) return false;
       if (end && item.date > end) return false;
-
       return true;
     });
   }, [analysisCustomEnd, analysisCustomStart, analysisPeriod, analysisReferenceDate, transactions]);
@@ -497,7 +682,6 @@ export default function Home() {
 
     for (const item of analysisTransactions) {
       if (item.type !== "expense") continue;
-
       grouped[item.category] = (grouped[item.category] ?? 0) + item.amount;
     }
 
@@ -510,12 +694,44 @@ export default function Home() {
       .sort((a, b) => b.total - a.total);
   }, [analysisTransactions]);
 
+  const smartSummaryItems = useMemo(() => {
+    const items: string[] = [];
+    const topExpenseCategory = categoryData[0];
+
+    if (transactionSummary.netFlow > 0) {
+      items.push(
+        `Bu dönemde gelirlerin giderlerinden yüksek. Net olarak +${formatMoney(transactionSummary.netFlow)} ileridesin.`,
+      );
+    } else if (transactionSummary.netFlow < 0) {
+      items.push(
+        `Bu dönemde giderlerin gelirlerinden yüksek. Net olarak -${formatMoney(Math.abs(transactionSummary.netFlow))} geridesin.`,
+      );
+    } else {
+      items.push("Bu dönemde gelir ve giderlerin dengede. Net durum ₺0.");
+    }
+
+    if (topExpenseCategory) {
+      items.push(
+        `En çok harcama yaptığın kategori: ${topExpenseCategory.category} (${formatMoney(topExpenseCategory.total)}).`,
+      );
+    }
+
+    if (transactionSummary.totalIncome === 0) {
+      items.push("Bu dönemde gelir kaydı görünmüyor.");
+    }
+
+    if (transactionSummary.totalExpense === 0) {
+      items.push("Bu dönemde gider kaydı görünmüyor.");
+    }
+
+    return items;
+  }, [categoryData, transactionSummary.netFlow, transactionSummary.totalExpense, transactionSummary.totalIncome]);
+
   const incomeData = useMemo(() => {
     const grouped: Record<string, number> = {};
 
     for (const item of analysisTransactions) {
       if (item.type !== "income") continue;
-
       grouped[item.category] = (grouped[item.category] ?? 0) + item.amount;
     }
 
@@ -556,7 +772,6 @@ export default function Home() {
       if (item.type === "income") {
         grouped[month].income += item.amount;
       }
-
       if (item.type === "expense") {
         grouped[month].expense += item.amount;
         grouped[month].categoryTotals[item.category] =
@@ -581,21 +796,244 @@ export default function Home() {
       .sort((a, b) => a.month.localeCompare(b.month));
   }, [analysisTransactions]);
 
+  const insightItems = useMemo(() => {
+    const incomeByCategory: Record<string, number> = {};
+    const expenseByCategory: Record<string, number> = {};
+    const incomeByDay: Record<string, number> = {};
+    const expenseByDay: Record<string, number> = {};
+    let totalAmount = 0;
+    let highestTransaction: Transaction | undefined;
+
+    for (const item of analysisTransactions) {
+      totalAmount += item.amount;
+      if (!highestTransaction || item.amount > highestTransaction.amount) {
+        highestTransaction = item;
+      }
+
+      if (item.type === "income") {
+        incomeByCategory[item.category] = (incomeByCategory[item.category] ?? 0) + item.amount;
+        incomeByDay[item.date] = (incomeByDay[item.date] ?? 0) + item.amount;
+      }
+
+      if (item.type === "expense") {
+        expenseByCategory[item.category] = (expenseByCategory[item.category] ?? 0) + item.amount;
+        expenseByDay[item.date] = (expenseByDay[item.date] ?? 0) + item.amount;
+      }
+    }
+
+    const topEntry = (entries: Record<string, number>) =>
+      Object.entries(entries).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], "tr"))[0];
+
+    const topIncomeCategory = topEntry(incomeByCategory);
+    const topExpenseCategory = topEntry(expenseByCategory);
+    const topExpenseDay = topEntry(expenseByDay);
+    const topIncomeDay = topEntry(incomeByDay);
+    const averageAmount =
+      analysisTransactions.length > 0 ? totalAmount / analysisTransactions.length : 0;
+    const incomeExpenseRatio =
+      transactionSummary.totalExpense > 0
+        ? formatPercent((transactionSummary.totalIncome / transactionSummary.totalExpense) * 100)
+        : transactionSummary.totalIncome > 0
+          ? "∞%"
+          : "%0";
+
+    return [
+      {
+        label: "En yüksek gelir kategorisi",
+        value: topIncomeCategory
+          ? `${topIncomeCategory[0]} / ${formatMoney(topIncomeCategory[1])}`
+          : "-",
+        tone: "income",
+      },
+      {
+        label: "En yüksek gider kategorisi",
+        value: topExpenseCategory
+          ? `${topExpenseCategory[0]} / ${formatMoney(topExpenseCategory[1])}`
+          : "-",
+        tone: "expense",
+      },
+      {
+        label: "Toplam işlem sayısı",
+        value: String(analysisTransactions.length),
+        tone: "count",
+      },
+      {
+        label: "Ortalama işlem tutarı",
+        value: formatMoney(averageAmount),
+        tone: "average",
+      },
+      {
+        label: "Gelir / Gider oranı",
+        value: incomeExpenseRatio,
+        tone: "ratio",
+      },
+      {
+        label: "En yüksek tek işlem",
+        value: highestTransaction
+          ? `${highestTransaction.category} / ${formatMoney(highestTransaction.amount)}`
+          : "-",
+        tone: "peak",
+      },
+      {
+        label: "En yoğun harcama günü",
+        value: topExpenseDay ? `${formatDate(topExpenseDay[0])} / ${formatMoney(topExpenseDay[1])}` : "-",
+        tone: "expense",
+      },
+      {
+        label: "En yoğun gelir günü",
+        value: topIncomeDay ? `${formatDate(topIncomeDay[0])} / ${formatMoney(topIncomeDay[1])}` : "-",
+        tone: "income",
+      },
+    ];
+  }, [analysisTransactions, transactionSummary.totalExpense, transactionSummary.totalIncome]);
+
+  const trendAnalysis = useMemo(() => {
+    const range = getTrendComparisonRange(
+      analysisPeriod,
+      analysisReferenceDate,
+      analysisCustomStart,
+      analysisCustomEnd,
+    );
+
+    if (!range) {
+      return {
+        hasComparison: false,
+        message: "Bu dönem için karşılaştırma yapılacak eşdeğer bir dönem bulunmuyor.",
+        items: [],
+      };
+    }
+
+    const previousTransactions = transactions.filter((item) => {
+      if (item.date < range.previousStart) return false;
+      if (item.date > range.previousEnd) return false;
+      return true;
+    });
+
+    if (previousTransactions.length === 0) {
+      return {
+        hasComparison: false,
+        message: "Karşılaştırma için yeterli geçmiş veri bulunamadı.",
+        items: [],
+      };
+    }
+
+    const currentSummary = summarizeTransactions(analysisTransactions);
+    const previousSummary = summarizeTransactions(previousTransactions);
+    const categoryNames = new Set([
+      ...Object.keys(currentSummary.expenseByCategory),
+      ...Object.keys(previousSummary.expenseByCategory),
+    ]);
+    let topIncreasedExpense: { category: string; diff: number } | undefined;
+    let topDecreasedExpense: { category: string; diff: number } | undefined;
+
+    for (const category of categoryNames) {
+      const diff =
+        (currentSummary.expenseByCategory[category] ?? 0) -
+        (previousSummary.expenseByCategory[category] ?? 0);
+
+      if (diff > 0 && (!topIncreasedExpense || diff > topIncreasedExpense.diff)) {
+        topIncreasedExpense = { category, diff };
+      }
+      if (diff < 0 && (!topDecreasedExpense || diff < topDecreasedExpense.diff)) {
+        topDecreasedExpense = { category, diff };
+      }
+    }
+
+    const netDiff = currentSummary.netFlow - previousSummary.netFlow;
+    const transactionDiff = currentSummary.transactionCount - previousSummary.transactionCount;
+
+    return {
+      hasComparison: true,
+      message: "",
+      items: [
+        {
+          label: "Gelir değişimi",
+          value: formatTrendPercent(currentSummary.totalIncome, previousSummary.totalIncome),
+          detail: buildTrendLabel(currentSummary.totalIncome, previousSummary.totalIncome, "Gelir arttı", "Gelir azaldı"),
+          tone: getTrendTone(currentSummary.totalIncome, previousSummary.totalIncome),
+        },
+        {
+          label: "Gider değişimi",
+          value: formatTrendPercent(currentSummary.totalExpense, previousSummary.totalExpense),
+          detail: buildTrendLabel(currentSummary.totalExpense, previousSummary.totalExpense, "Gider arttı", "Gider azaldı"),
+          tone: getTrendTone(currentSummary.totalExpense, previousSummary.totalExpense),
+        },
+        {
+          label: "Net durum değişimi",
+          value: formatSignedMoney(netDiff),
+          detail: buildTrendLabel(currentSummary.netFlow, previousSummary.netFlow, "Net durum iyileşti", "Net durum geriledi"),
+          tone: getTrendTone(currentSummary.netFlow, previousSummary.netFlow),
+        },
+        {
+          label: "En çok artan gider kategorisi",
+          value: topIncreasedExpense
+            ? `${topIncreasedExpense.category} / +${formatMoney(topIncreasedExpense.diff)}`
+            : "-",
+          detail: topIncreasedExpense ? "Önceki döneme göre artış" : "Artan kategori yok",
+          tone: topIncreasedExpense ? "positive" : "neutral",
+        },
+        {
+          label: "En çok azalan gider kategorisi",
+          value: topDecreasedExpense
+            ? `${topDecreasedExpense.category} / -${formatMoney(Math.abs(topDecreasedExpense.diff))}`
+            : "-",
+          detail: topDecreasedExpense ? "Önceki döneme göre azalış" : "Azalan kategori yok",
+          tone: topDecreasedExpense ? "negative" : "neutral",
+        },
+        {
+          label: "İşlem sayısı değişimi",
+          value: `${transactionDiff > 0 ? "+" : ""}${transactionDiff}`,
+          detail: `${formatTrendPercent(currentSummary.transactionCount, previousSummary.transactionCount)} değişim`,
+          tone: getTrendTone(currentSummary.transactionCount, previousSummary.transactionCount),
+        },
+      ],
+    };
+  }, [
+    analysisCustomEnd,
+    analysisCustomStart,
+    analysisPeriod,
+    analysisReferenceDate,
+    analysisTransactions,
+    transactions,
+  ]);
+
   const sortedTransactions = useMemo(() => {
     return [...transactions].sort(sortByDateNewest);
   }, [transactions]);
 
   function updateBaseBalance(key: keyof BaseBalances, rawValue: string) {
+    if (!user) return;
     const parsed = parseAmountInput(rawValue);
+    const safeValue = Number.isFinite(parsed) ? parsed : 0;
 
-    setBaseBalances((current) => ({
-      ...current,
-      [key]: Number.isFinite(parsed) ? parsed : 0,
-    }));
+    setBaseBalances((current) => {
+      const next = {
+        ...current,
+        [key]: safeValue,
+      };
+
+      supabase
+        .from("base_balances")
+        .upsert({
+          user_id: user.id,
+          cash: next.cash,
+          bank: next.bank,
+          benefit: next.benefit,
+          savings: next.savings,
+          credit_debt: next.creditDebt,
+          updated_at: new Date().toISOString(),
+        })
+        .then(({ error }) => {
+          if (error) console.error("Bakiye güncelleme hatası:", error);
+        });
+
+      return next;
+    });
   }
 
-  function addTransaction(event: React.FormEvent<HTMLFormElement>) {
+  async function addTransaction(event: React.FormEvent) {
     event.preventDefault();
+    if (!user) return;
 
     const amount = parseAmountInput(txAmount);
 
@@ -622,9 +1060,27 @@ export default function Home() {
     setTxNote("");
     setTxDate(todayInputValue());
     setActiveTab("history");
+
+    const { error } = await supabase.from("transactions").insert({
+      id: newTransaction.id,
+      user_id: user.id,
+      date: newTransaction.date,
+      type: newTransaction.type,
+      account: newTransaction.account,
+      category: newTransaction.category,
+      amount: newTransaction.amount,
+      note: newTransaction.note,
+      created_at: newTransaction.createdAt,
+      source: newTransaction.source,
+    });
+
+    if (error) {
+      console.error("İşlem ekleme hatası:", error);
+    }
   }
 
-  function undoTransaction(transactionId: string) {
+  async function undoTransaction(transactionId: string) {
+    if (!user) return;
     const target = transactions.find((item) => item.id === transactionId);
 
     if (!target) return;
@@ -633,7 +1089,6 @@ export default function Home() {
       setDebts((current) =>
         current.map((debt) => {
           if (debt.id !== target.debtId) return debt;
-
           return {
             ...debt,
             paid: false,
@@ -646,6 +1101,15 @@ export default function Home() {
     }
 
     setTransactions((current) => current.filter((item) => item.id !== transactionId));
+
+    const { error } = await supabase
+      .from("transactions")
+      .delete()
+      .eq("id", transactionId)
+      .eq("user_id", user.id);
+    if (error) {
+      console.error("İşlem silme hatası:", error);
+    }
   }
 
   function openEditTransaction(transaction: Transaction) {
@@ -661,10 +1125,9 @@ export default function Home() {
     setEditingTransactionId(null);
   }
 
-  function saveEditedTransaction(event: React.FormEvent<HTMLFormElement>) {
+  async function saveEditedTransaction(event: React.FormEvent) {
     event.preventDefault();
-
-    if (!editingTransactionId) return;
+    if (!editingTransactionId || !user) return;
 
     const amount = parseAmountInput(editAmount);
 
@@ -673,25 +1136,49 @@ export default function Home() {
       return;
     }
 
+    const updatedDate = editDate || todayInputValue();
+    const updatedNote = editNote.trim();
+    const targetId = editingTransactionId;
+
     setTransactions((current) =>
       current.map((item) => {
-        if (item.id !== editingTransactionId) return item;
-
+        if (item.id !== targetId) return item;
         return {
           ...item,
-          date: editDate || todayInputValue(),
+          date: updatedDate,
           type: editType,
           category: editCategory,
           amount,
-          note: editNote.trim(),
+          note: updatedNote,
         };
       }),
     );
 
     closeEditTransaction();
+
+    const { error } = await supabase
+      .from("transactions")
+      .update({
+        date: updatedDate,
+        type: editType,
+        category: editCategory,
+        amount,
+        note: updatedNote,
+      })
+      .eq("id", targetId)
+      .eq("user_id", user.id);
+
+    if (error) {
+      console.error("İşlem güncelleme hatası:", error);
+    }
   }
 
+  const isLoading = !authReady || (!!user && !loaded);
+
   return (
+    <>
+      {authReady && !user ? <AuthScreen /> : null}
+      {authReady && user ? (
     <main className="page">
       <div className="shell">
         <header className="hero">
@@ -700,14 +1187,14 @@ export default function Home() {
               <div className="logo">
                 <Image
                   className="logoImage"
-                  src="/mt-logo-clean.png"
-                  alt="Money Talks logosu"
+                  src="/fiyor-logo.jpg"
+                  alt="fiyor₺X logosu"
                   width={60}
                   height={60}
                   priority
                 />
               </div>
-              <h1 className="text-2xl font-bold tracking-tight">Money Talks</h1>
+              <h1 className="text-2xl font-bold tracking-tight">fiyor₺X</h1>
             </div>
             <p className="subtitle">Kişisel para akışı, ödemeler ve birikim takibi.</p>
           </div>
@@ -721,6 +1208,13 @@ export default function Home() {
               <span>Toplam Varlık</span>
               <strong>{formatMoney(balances.totalAssets)}</strong>
             </div>
+            <button
+              className="btn secondary small"
+              type="button"
+              onClick={() => supabase.auth.signOut()}
+            >
+              Çıkış Yap
+            </button>
           </div>
         </header>
 
@@ -1039,15 +1533,64 @@ export default function Home() {
         )}
 
         {activeTab === "analysis" && (
-          <section className="sectionStack">
-            <div className="grid cards">
+          <section className="sectionStack analysisSection">
+            <div className="grid cards analysisSummaryGrid">
               <ReadonlyMoneyCard label="Toplam Gelir" value={formatMoney(transactionSummary.totalIncome)} />
               <ReadonlyMoneyCard label="Toplam Gider" value={formatMoney(transactionSummary.totalExpense)} />
-              <ReadonlyMoneyCard label="Net Akış" value={formatMoney(transactionSummary.netFlow)} />
-              <ReadonlyMoneyCard label="İşlem Sayısı" value={String(analysisTransactions.length)} />
+              <ReadonlyMoneyCard label="Net Durum" value={formatMoney(transactionSummary.netFlow)} />
             </div>
 
-            <div className="panel">
+            <div className="glass smartSummaryCard">
+              <div className="smartSummaryHeader">
+                <span>Akıllı Özet</span>
+              </div>
+
+              <ul className="smartSummaryList">
+                {smartSummaryItems.map((item) => (
+                  <li key={item}>{item}</li>
+                ))}
+              </ul>
+            </div>
+
+            <div className="glass insightsCard">
+              <div className="smartSummaryHeader">
+                <span>İçgörüler</span>
+              </div>
+
+              <div className="insightsGrid">
+                {insightItems.map((item) => (
+                  <div className="insightItem" key={item.label}>
+                    <span className={`insightIcon ${item.tone}`} aria-hidden="true" />
+                    <div className="insightText">
+                      <span className="insightLabel">{item.label}</span>
+                      <strong className="insightValue">{item.value}</strong>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="glass trendCard">
+              <div className="smartSummaryHeader">
+                <span>Trend Analizi</span>
+              </div>
+
+              {trendAnalysis.hasComparison ? (
+                <div className="trendGrid">
+                  {trendAnalysis.items.map((item) => (
+                    <div className={`trendItem ${item.tone}`} key={item.label}>
+                      <span className="trendLabel">{item.label}</span>
+                      <strong className="trendValue">{item.value}</strong>
+                      <span className="trendDetail">{item.detail}</span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="trendEmpty">{trendAnalysis.message}</div>
+              )}
+            </div>
+
+            <div className="panel glass analysisPanel">
               <div className="sectionHeader">
                 <div>
                   <h2>Analiz</h2>
@@ -1113,7 +1656,7 @@ export default function Home() {
 
               <div className="analysisPicker">
                 <button
-                  className={`analysisChoice ${analysisMode === "category" ? "active" : ""}`}
+                  className={`analysisChoice glass ${analysisMode === "category" ? "active" : ""}`}
                   type="button"
                   onClick={() => setAnalysisMode("category")}
                 >
@@ -1133,7 +1676,7 @@ export default function Home() {
                 </button>
 
                 <button
-                  className={`analysisChoice ${analysisMode === "flow" ? "active" : ""}`}
+                  className={`analysisChoice glass ${analysisMode === "flow" ? "active" : ""}`}
                   type="button"
                   onClick={() => setAnalysisMode("flow")}
                 >
@@ -1148,7 +1691,7 @@ export default function Home() {
                 </button>
 
                 <button
-                  className={`analysisChoice ${analysisMode === "pie" ? "active" : ""}`}
+                  className={`analysisChoice glass ${analysisMode === "pie" ? "active" : ""}`}
                   type="button"
                   onClick={() => setAnalysisMode("pie")}
                 >
@@ -1182,6 +1725,23 @@ export default function Home() {
         )}
       </div>
     </main>
+      ) : null}
+      <div
+        className={`fixed inset-0 z-50 bg-[#0B1528] transition-opacity duration-300 ${
+          isLoading ? "opacity-100" : "pointer-events-none opacity-0"
+        }`}
+        aria-hidden={!isLoading}
+      >
+        <Image
+          src="/fiyor-splash.jpg"
+          alt=""
+          fill
+          sizes="100vw"
+          preload
+          className="object-cover"
+        />
+      </div>
+    </>
   );
 }
 
@@ -1198,8 +1758,12 @@ function EditableMoneyCard({
     Number.isFinite(value) ? String(value) : "",
   );
 
+  useEffect(() => {
+    setDraftValue(Number.isFinite(value) ? String(value) : "");
+  }, [value]);
+
   return (
-    <div className="card editableMoneyCard">
+    <div className="card glass editableMoneyCard">
       <div className="cardLabel">{label}</div>
       <input
         className="moneyInput"
@@ -1218,7 +1782,7 @@ function EditableMoneyCard({
 
 function ReadonlyMoneyCard({ label, value }: { label: string; value: string }) {
   return (
-    <div className="card">
+    <div className="card glass">
       <div className="cardLabel">{label}</div>
       <div className="cardValue readonlyTotal">{value}</div>
     </div>
@@ -1316,7 +1880,7 @@ function FlowChart({
               x2={width - 24}
               y1={y}
               y2={y}
-              stroke="rgba(255,255,255,0.1)"
+              stroke="rgba(56, 189, 248, 0.15)"
               strokeWidth="1"
               strokeDasharray="4 6"
             />
@@ -1327,7 +1891,7 @@ function FlowChart({
           x2={width - 24}
           y1={baseY}
           y2={baseY}
-          stroke="rgba(255,255,255,0.22)"
+          stroke="rgba(56, 189, 248, 0.3)"
           strokeWidth="1"
         />
 
@@ -1345,7 +1909,7 @@ function FlowChart({
                 width="22"
                 height={incomeHeight}
                 rx="8"
-                fill="#22c55e"
+                fill="#059669"
               />
 
               <rect
@@ -1354,7 +1918,7 @@ function FlowChart({
                 width="22"
                 height={expenseHeight}
                 rx="8"
-                fill="#ef4444"
+                fill="#DC2626"
               />
 
               <rect
@@ -1363,14 +1927,14 @@ function FlowChart({
                 width="22"
                 height={netHeight}
                 rx="8"
-                fill={item.net >= 0 ? "#8b5cf6" : "#dc2626"}
+                fill={item.net >= 0 ? "#0284C7" : "#DC2626"}
               />
 
               <text
                 x={x + 41}
                 y={chartHeight + 4}
                 textAnchor="middle"
-                fill="rgba(255,255,255,0.72)"
+                fill="#94A3B8"
                 fontSize="12"
                 fontWeight="800"
               >
@@ -1381,7 +1945,7 @@ function FlowChart({
                 x={x + 41}
                 y={chartHeight + 24}
                 textAnchor="middle"
-                fill="rgba(255,255,255,0.9)"
+                fill="#F8FAFC"
                 fontSize="12"
                 fontWeight="900"
               >
@@ -1394,7 +1958,7 @@ function FlowChart({
 
       <div className="flowCards">
         {data.map((item) => (
-          <div className="flowCard" key={item.month}>
+          <div className="flowCard glass" key={item.month}>
             <strong>{formatMonth(item.month)}</strong>
             <span>Gelir: {formatMoney(item.income)}</span>
             <span>Gider: {formatMoney(item.expense)}</span>
@@ -1503,11 +2067,7 @@ function PieChart({
         className="pieSvg"
         viewBox="0 0 240 240"
         role="img"
-        aria-label={
-          incomeCoversExpenses
-            ? "Gelir giderlerin tamamını karşılıyor."
-            : `Giderlerin yüzde ${(coverageRatio * 100).toFixed(1)} kadarı gelirle karşılanıyor.`
-        }
+        aria-label="Gelir ve gider dağılım pasta grafiği"
       >
         <circle
           cx="120"
@@ -1537,7 +2097,7 @@ function PieChart({
           cy="120"
           r={expenseRadius}
           fill="none"
-          stroke="rgba(255,255,255,0.08)"
+          stroke="rgba(56, 189, 248, 0.15)"
           strokeWidth="24"
         />
 
@@ -1560,13 +2120,20 @@ function PieChart({
           ) : null;
         })}
 
-        <circle cx="120" cy="120" r="34" fill="rgba(16, 8, 31, 0.92)" />
+        <circle
+          cx="120"
+          cy="120"
+          r="34"
+          fill="#0B1528"
+          stroke="rgba(56, 189, 248, 0.3)"
+          strokeWidth="1.5"
+        />
 
         <text
           x="120"
           y="108"
           textAnchor="middle"
-          fill="rgba(255,255,255,0.75)"
+          fill="#94A3B8"
           fontSize="12"
           fontWeight="800"
         >
@@ -1576,7 +2143,7 @@ function PieChart({
           x="120"
           y="132"
           textAnchor="middle"
-          fill="white"
+          fill="#F8FAFC"
           fontSize="16"
           fontWeight="950"
         >

@@ -1,0 +1,32 @@
+Uygulamayı aç
+
+1.
+cd C:\Users\Fuur\Desktop\mt
+
+2.
+npm run dev
+
+3.
+code .
+
+-------------------
+
+Canlıya gönder
+
+git status
+
+git add .
+
+git commit -m "..."
+
+git push
+
+-------------------
+
+Kapat
+
+Ctrl+C
+
+Y
+
+exit
