@@ -1193,7 +1193,7 @@ export default function Home() {
         <header className="hero">
           <div className="brand">
             <div className="logoLine">
-              <div className="logo">
+              <div className="logo rounded-2xl overflow-hidden">
                 <Image
                   className="logoImage"
                   src="/fiyor-logo.jpg"
