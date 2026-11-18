@@ -85,7 +85,7 @@ export default function AuthScreen() {
           {message && (
             <p
               style={{
-                color: message.includes("başarılı") ? "#059669" : "#DC2626",
+                color: "#FFFFFF",
                 fontSize: "14px",
                 fontWeight: 600,
                 textAlign: "center",

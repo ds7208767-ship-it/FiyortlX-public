@@ -573,8 +573,8 @@ export default function Home() {
     }
 
     const mainMoney = cash + bank;
-    const totalSpendable = cash + bank + benefit - creditDebt;
-    const totalAssets = totalSpendable + savings;
+    const totalAssets = cash + bank + savings - creditDebt;
+    const totalSpendable = totalAssets + benefit;
 
     return {
       cash,
@@ -587,6 +587,12 @@ export default function Home() {
       totalAssets,
     };
   }, [baseBalances, transactions]);
+
+  const openingNetEntry =
+    baseBalances.cash +
+    baseBalances.bank +
+    baseBalances.savings -
+    baseBalances.creditDebt;
 
   const analysisTransactions = useMemo(() => {
     if (analysisPeriod === "all") return transactions;
@@ -676,6 +682,9 @@ export default function Home() {
       netFlow: totalIncome - totalExpense,
     };
   }, [analysisTransactions]);
+
+  const totalExpenseIncludingOpeningDebt =
+    transactionSummary.totalExpense + baseBalances.creditDebt;
 
   const categoryData = useMemo(() => {
     const grouped: Record<string, number> = {};
@@ -1534,9 +1543,33 @@ export default function Home() {
 
         {activeTab === "analysis" && (
           <section className="sectionStack analysisSection">
+            <section className="panel">
+              <div className="sectionHeader">
+                <div>
+                  <h2>GİRİŞ</h2>
+                  <p>Genel sekmesinde kaydedilen ilk gün bakiyeleri.</p>
+                </div>
+              </div>
+
+              <div className="grid cards analysisSummaryGrid">
+                <ReadonlyMoneyCard label="Nakit" value={formatMoney(baseBalances.cash)} />
+                <ReadonlyMoneyCard label="Banka" value={formatMoney(baseBalances.bank)} />
+                <ReadonlyMoneyCard
+                  label="Kredi Kartı Borcu"
+                  value={formatMoney(baseBalances.creditDebt)}
+                />
+                <ReadonlyMoneyCard label="Yan Hak" value={formatMoney(baseBalances.benefit)} />
+                <ReadonlyMoneyCard label="Birikim" value={formatMoney(baseBalances.savings)} />
+                <ReadonlyMoneyCard label="Net Giriş" value={formatMoney(openingNetEntry)} />
+              </div>
+            </section>
+
             <div className="grid cards analysisSummaryGrid">
               <ReadonlyMoneyCard label="Toplam Gelir" value={formatMoney(transactionSummary.totalIncome)} />
-              <ReadonlyMoneyCard label="Toplam Gider" value={formatMoney(transactionSummary.totalExpense)} />
+              <ReadonlyMoneyCard
+                label="Toplam Gider"
+                value={formatMoney(totalExpenseIncludingOpeningDebt)}
+              />
               <ReadonlyMoneyCard label="Net Durum" value={formatMoney(transactionSummary.netFlow)} />
             </div>
 
@@ -1934,7 +1967,7 @@ function FlowChart({
                 x={x + 41}
                 y={chartHeight + 4}
                 textAnchor="middle"
-                fill="#94A3B8"
+                fill="#E2E8F0"
                 fontSize="12"
                 fontWeight="800"
               >
@@ -1945,7 +1978,7 @@ function FlowChart({
                 x={x + 41}
                 y={chartHeight + 24}
                 textAnchor="middle"
-                fill="#F8FAFC"
+                fill="#FFFFFF"
                 fontSize="12"
                 fontWeight="900"
               >
@@ -2133,7 +2166,7 @@ function PieChart({
           x="120"
           y="108"
           textAnchor="middle"
-          fill="#94A3B8"
+          fill="#E2E8F0"
           fontSize="12"
           fontWeight="800"
         >
@@ -2143,7 +2176,7 @@ function PieChart({
           x="120"
           y="132"
           textAnchor="middle"
-          fill="#F8FAFC"
+          fill="#FFFFFF"
           fontSize="16"
           fontWeight="950"
         >
