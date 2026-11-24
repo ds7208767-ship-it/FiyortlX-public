@@ -23,6 +23,7 @@ export type Transaction = {
   amount: number;
   note: string;
   createdAt: string;
+  isConfirmed: boolean;
   source?: "manual" | "debtPayment";
   debtId?: string;
 };

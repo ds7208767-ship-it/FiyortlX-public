@@ -223,20 +223,22 @@ function summarizeTransactions(items: Transaction[]) {
   let totalIncome = 0;
   let totalExpense = 0;
   const expenseByCategory: Record<string, number> = {};
+  let transactionCount = 0;
 
   for (const item of items) {
-    if (item.type === "income") totalIncome += item.amount;
+    if (item.type === "income" && item.isConfirmed) totalIncome += item.amount;
     if (item.type === "expense") {
       totalExpense += item.amount;
       expenseByCategory[item.category] = (expenseByCategory[item.category] ?? 0) + item.amount;
     }
+    if (item.type === "expense" || item.isConfirmed) transactionCount += 1;
   }
 
   return {
     totalIncome,
     totalExpense,
     netFlow: totalIncome - totalExpense,
-    transactionCount: items.length,
+    transactionCount,
     expenseByCategory,
   };
 }
@@ -419,6 +421,7 @@ export default function Home() {
   const [txAmount, setTxAmount] = useState("");
   const [txNote, setTxNote] = useState("");
   const [txDate, setTxDate] = useState(todayInputValue());
+  const [txIsConfirmed, setTxIsConfirmed] = useState(false);
   const [editingTransactionId, setEditingTransactionId] = useState<string | null>(null);
   const [editType, setEditType] = useState<TransactionType>("expense");
   const [editCategory, setEditCategory] = useState(expenseCategories[0]);
@@ -485,6 +488,7 @@ export default function Home() {
           amount: Number(row.amount),
           note: String(row.note ?? ""),
           createdAt: String(row.created_at),
+          isConfirmed: row.is_confirmed == null ? true : Boolean(row.is_confirmed),
           source: (row.source as "manual" | "debtPayment") ?? "manual",
           debtId: row.debt_id ? String(row.debt_id) : undefined,
         }));
@@ -534,6 +538,7 @@ export default function Home() {
   function handleTransactionTypeChange(nextType: TransactionType) {
     const nextCategories = nextType === "income" ? incomeCategories : expenseCategories;
     setTxType(nextType);
+    setTxIsConfirmed(false);
     if (!nextCategories.includes(txCategory)) {
       setTxCategory(nextCategories[0]);
     }
@@ -564,7 +569,7 @@ export default function Home() {
         if (item.account === "creditCard") creditDebt += item.amount;
       }
 
-      if (item.type === "income") {
+      if (item.type === "income" && item.isConfirmed) {
         if (item.account === "cash") cash += item.amount;
         if (item.account === "bank") bank += item.amount;
         if (item.account === "benefit") benefit += item.amount;
@@ -595,7 +600,9 @@ export default function Home() {
     baseBalances.creditDebt;
 
   const analysisTransactions = useMemo(() => {
-    if (analysisPeriod === "all") return transactions;
+    if (analysisPeriod === "all") {
+      return transactions.filter((item) => item.type !== "income" || item.isConfirmed);
+    }
 
     const today = analysisReferenceDate;
     const currentMonth = today.slice(0, 7);
@@ -661,6 +668,7 @@ export default function Home() {
     }
 
     return transactions.filter((item) => {
+      if (item.type === "income" && !item.isConfirmed) return false;
       if (start && item.date < start) return false;
       if (end && item.date > end) return false;
       return true;
@@ -913,6 +921,7 @@ export default function Home() {
     }
 
     const previousTransactions = transactions.filter((item) => {
+      if (item.type === "income" && !item.isConfirmed) return false;
       if (item.date < range.previousStart) return false;
       if (item.date > range.previousEnd) return false;
       return true;
@@ -1051,15 +1060,19 @@ export default function Home() {
       return;
     }
 
+    const transactionDate = txDate || todayInputValue();
     const newTransaction: Transaction = {
       id: createId("tx"),
-      date: txDate || todayInputValue(),
+      date: transactionDate,
       type: txType,
       account: txAccount,
       category: txCategory,
       amount,
       note: txNote.trim(),
       createdAt: new Date().toISOString(),
+      isConfirmed:
+        txType === "expense" ||
+        (txIsConfirmed && transactionDate <= todayInputValue()),
       source: "manual",
     };
 
@@ -1068,6 +1081,7 @@ export default function Home() {
     setTxAmount("");
     setTxNote("");
     setTxDate(todayInputValue());
+    setTxIsConfirmed(false);
     setActiveTab("history");
 
     const { error } = await supabase.from("transactions").insert({
@@ -1080,11 +1094,37 @@ export default function Home() {
       amount: newTransaction.amount,
       note: newTransaction.note,
       created_at: newTransaction.createdAt,
+      is_confirmed: newTransaction.isConfirmed,
       source: newTransaction.source,
     });
 
     if (error) {
       console.error("İşlem ekleme hatası:", error);
+    }
+  }
+
+  async function updateTransactionConfirmation(transactionId: string, isConfirmed: boolean) {
+    if (!user) return;
+
+    const transaction = transactions.find((item) => item.id === transactionId);
+    if (!transaction || transaction.type !== "income" || transaction.isConfirmed === isConfirmed) {
+      return;
+    }
+
+    setTransactions((current) =>
+      current.map((item) =>
+        item.id === transactionId ? { ...item, isConfirmed } : item,
+      ),
+    );
+
+    const { error } = await supabase
+      .from("transactions")
+      .update({ is_confirmed: isConfirmed })
+      .eq("id", transactionId)
+      .eq("user_id", user.id);
+
+    if (error) {
+      console.error("Gelir onay durumu güncelleme hatası:", error);
     }
   }
 
@@ -1148,6 +1188,11 @@ export default function Home() {
     const updatedDate = editDate || todayInputValue();
     const updatedNote = editNote.trim();
     const targetId = editingTransactionId;
+    const targetTransaction = transactions.find((item) => item.id === targetId);
+    if (!targetTransaction) return;
+    const updatedIsConfirmed =
+      editType === "expense" ||
+      (targetTransaction.type === "income" && targetTransaction.isConfirmed);
 
     setTransactions((current) =>
       current.map((item) => {
@@ -1159,6 +1204,7 @@ export default function Home() {
           category: editCategory,
           amount,
           note: updatedNote,
+          isConfirmed: updatedIsConfirmed,
         };
       }),
     );
@@ -1173,6 +1219,7 @@ export default function Home() {
         category: editCategory,
         amount,
         note: updatedNote,
+        is_confirmed: updatedIsConfirmed,
       })
       .eq("id", targetId)
       .eq("user_id", user.id);
@@ -1182,10 +1229,22 @@ export default function Home() {
     }
   }
 
+  const isFutureTransactionDate = txDate > todayInputValue();
   const isLoading = !authReady || (!!user && !loaded);
 
   return (
     <>
+      <div className="fixed inset-0 z-0 overflow-hidden" aria-hidden="true">
+        <Image
+          src="/bg-fjord.jpg"
+          alt=""
+          fill
+          sizes="100vw"
+          preload
+          className="object-cover blur-xl"
+        />
+        <div className="absolute inset-0 bg-[#060d18]/55" />
+      </div>
       {authReady && !user ? <AuthScreen /> : null}
       {authReady && user ? (
     <main className="page">
@@ -1218,7 +1277,7 @@ export default function Home() {
               <strong>{formatMoney(balances.totalAssets)}</strong>
             </div>
             <button
-              className="btn secondary small"
+              className="btn secondary small logoutButton"
               type="button"
               onClick={() => supabase.auth.signOut()}
             >
@@ -1356,9 +1415,33 @@ export default function Home() {
                   <input
                     type="date"
                     value={txDate}
-                    onChange={(event) => setTxDate(event.target.value)}
+                    onChange={(event) => {
+                      const nextDate = event.target.value;
+                      setTxDate(nextDate);
+                      if (nextDate > todayInputValue()) setTxIsConfirmed(false);
+                    }}
                   />
                 </div>
+
+                {txType === "income" && (
+                  <div className="field full">
+                    <label className="incomeConfirmationField">
+                      <input
+                        className="incomeConfirmationCheckbox"
+                        type="checkbox"
+                        checked={txIsConfirmed && !isFutureTransactionDate}
+                        disabled={isFutureTransactionDate}
+                        onChange={(event) => setTxIsConfirmed(event.target.checked)}
+                      />
+                      <span>Bu parayı aldım (bakiyeye hemen ekle)</span>
+                    </label>
+                    {isFutureTransactionDate && (
+                      <span className="fieldHint">
+                        İleri tarihli gelirler beklemede eklenir.
+                      </span>
+                    )}
+                  </div>
+                )}
 
                 <div className="field full">
                   <label>Not</label>
@@ -1381,6 +1464,7 @@ export default function Home() {
                     setTxAmount("");
                     setTxNote("");
                     setTxDate(todayInputValue());
+                    setTxIsConfirmed(false);
                   }}
                 >
                   Temizle
@@ -1408,8 +1492,18 @@ export default function Home() {
                     <div className="listItem">
                       <div>
                         <div className="listTitle">
-                          <span className={`pill ${item.type}`}>
-                            {item.type === "income" ? "Gelir" : "Gider"}
+                          <span
+                            className={`pill ${
+                              item.type === "income" && !item.isConfirmed
+                                ? "pending"
+                                : item.type
+                            }`}
+                          >
+                            {item.type === "income"
+                              ? item.isConfirmed
+                                ? "Gelir"
+                                : "Bekliyor"
+                              : "Gider"}
                           </span>
                           <span>{item.category}</span>
                           {item.source === "debtPayment" && <span className="pill">Ödeme</span>}
@@ -1424,7 +1518,11 @@ export default function Home() {
                       </div>
 
                       <div>
-                        <div className={`amount ${item.type}`}>
+                        <div
+                          className={`amount ${item.type} ${
+                            item.type === "income" && !item.isConfirmed ? "pending" : ""
+                          }`}
+                        >
                           {item.type === "income" ? "+" : "-"}
                           {formatMoney(item.amount)}
                         </div>
@@ -1444,6 +1542,17 @@ export default function Home() {
                           >
                             Geri Al
                           </button>
+                          {item.type === "income" && (
+                            <button
+                              className={`btn small ${item.isConfirmed ? "secondary" : "success"}`}
+                              type="button"
+                              onClick={() =>
+                                updateTransactionConfirmation(item.id, !item.isConfirmed)
+                              }
+                            >
+                              {item.isConfirmed ? "Almadım" : "Aldım"}
+                            </button>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -1551,7 +1660,7 @@ export default function Home() {
                 </div>
               </div>
 
-              <div className="grid cards analysisSummaryGrid">
+              <div className="grid cards analysisSummaryGrid openingSummaryGrid">
                 <ReadonlyMoneyCard label="Nakit" value={formatMoney(baseBalances.cash)} />
                 <ReadonlyMoneyCard label="Banka" value={formatMoney(baseBalances.bank)} />
                 <ReadonlyMoneyCard
@@ -1593,11 +1702,11 @@ export default function Home() {
               <div className="insightsGrid">
                 {insightItems.map((item) => (
                   <div className="insightItem" key={item.label}>
-                    <span className={`insightIcon ${item.tone}`} aria-hidden="true" />
-                    <div className="insightText">
+                    <div className="insightHeading">
+                      <span className={`insightIcon ${item.tone}`} aria-hidden="true" />
                       <span className="insightLabel">{item.label}</span>
-                      <strong className="insightValue">{item.value}</strong>
                     </div>
+                    <strong className="insightValue">{item.value}</strong>
                   </div>
                 ))}
               </div>
