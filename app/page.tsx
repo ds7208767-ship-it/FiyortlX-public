@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { User } from "@supabase/supabase-js";
 import { supabase } from "../lib/supabase";
 import AuthScreen from "./AuthScreen";
@@ -19,6 +19,31 @@ import type {
 
 const STORAGE_KEY = "fiyortx-app-v4";
 
+type IconName =
+  | "home"
+  | "transfer"
+  | "history"
+  | "analysis"
+  | "logout"
+  | "cash"
+  | "bank"
+  | "creditCard"
+  | "benefit"
+  | "savings"
+  | "income"
+  | "expense"
+  | "net"
+  | "count"
+  | "trendUp"
+  | "trendDown"
+  | "trendFlat";
+
+type MetricTrend = {
+  direction: "up" | "down" | "flat";
+  tone: "positive" | "negative" | "neutral";
+  label: string;
+};
+
 const tabs: { id: TabKey; label: string }[] = [
   { id: "overview", label: "Genel" },
   { id: "transaction", label: "İşlem" },
@@ -26,14 +51,26 @@ const tabs: { id: TabKey; label: string }[] = [
   { id: "analysis", label: "Analiz" },
 ];
 
+const tabIcons: Record<TabKey, IconName> = {
+  overview: "home",
+  transaction: "transfer",
+  history: "history",
+  analysis: "analysis",
+};
+
 const accountLabels: Record<AccountKey, string> = {
   cash: "Nakit",
   bank: "Banka",
   creditCard: "Kredi Kartı",
   benefit: "Yan Hak",
+  savings: "Birikim",
 };
 
 const accountOptions: AccountKey[] = ["cash", "bank", "creditCard", "benefit"];
+const transferSourceOptions: AccountKey[] = ["cash", "bank", "benefit", "savings"];
+const transferTargetOptions: AccountKey[] = ["cash", "bank", "savings", "creditCard"];
+
+type HistoryFilter = "all" | "pending" | "income" | "expense" | "transfer";
 
 const incomeCategories = [
   "Maaş",
@@ -243,6 +280,106 @@ function summarizeTransactions(items: Transaction[]) {
   };
 }
 
+function calculateBalances(baseBalances: BaseBalances, items: Transaction[]) {
+  let cash = baseBalances.cash;
+  let bank = baseBalances.bank;
+  let benefit = baseBalances.benefit;
+  let savings = baseBalances.savings;
+  let creditDebt = baseBalances.creditDebt;
+
+  for (const item of [...items].sort(sortByCreatedAscending)) {
+    if (item.type === "expense") {
+      if (item.account === "cash") cash -= item.amount;
+      if (item.account === "bank") bank -= item.amount;
+      if (item.account === "benefit") benefit -= item.amount;
+      if (item.account === "creditCard") creditDebt += item.amount;
+    }
+
+    if (item.type === "income" && item.isConfirmed) {
+      if (item.account === "cash") cash += item.amount;
+      if (item.account === "bank") bank += item.amount;
+      if (item.account === "benefit") benefit += item.amount;
+      if (item.account === "creditCard") creditDebt = Math.max(0, creditDebt - item.amount);
+    }
+
+    if (item.type === "transfer" && item.toAccount) {
+      if (item.account === "cash") cash -= item.amount;
+      if (item.account === "bank") bank -= item.amount;
+      if (item.account === "benefit") benefit -= item.amount;
+      if (item.account === "savings") savings -= item.amount;
+
+      if (item.toAccount === "cash") cash += item.amount;
+      if (item.toAccount === "bank") bank += item.amount;
+      if (item.toAccount === "savings") savings += item.amount;
+      if (item.toAccount === "creditCard") {
+        creditDebt = Math.max(0, creditDebt - item.amount);
+      }
+    }
+  }
+
+  const mainMoney = cash + bank;
+  const totalAssets = cash + bank + savings - creditDebt;
+  const totalSpendable = totalAssets + benefit;
+
+  return {
+    cash,
+    bank,
+    benefit,
+    savings,
+    creditDebt,
+    mainMoney,
+    totalSpendable,
+    totalAssets,
+  };
+}
+
+function getMetricTrend(current: number, previous: number, inverse = false): MetricTrend {
+  if (!Number.isFinite(current) || !Number.isFinite(previous) || previous === 0) {
+    return {
+      direction: "flat",
+      tone: "neutral",
+      label: current !== 0 ? "Bu dönemde aktif" : "Önceki dönem verisi yok",
+    };
+  }
+
+  const difference = current - previous;
+  if (difference === 0) {
+    return {
+      direction: "flat",
+      tone: "neutral",
+      label: "Önceki dönemle aynı",
+    };
+  }
+
+  const percentage = Math.abs((difference / Math.abs(previous)) * 100);
+  if (!Number.isFinite(percentage)) {
+    return {
+      direction: "flat",
+      tone: "neutral",
+      label: "Değişim hesaplanamadı",
+    };
+  }
+
+  const direction = difference > 0 ? "up" : "down";
+  const tone = inverse
+    ? difference < 0
+      ? "positive"
+      : "negative"
+    : difference > 0
+      ? "positive"
+      : "negative";
+
+  return {
+    direction,
+    tone,
+    label: `${formatPercent(percentage)} önceki döneme göre`,
+  };
+}
+
+function getFallbackTrend(label: string, tone: MetricTrend["tone"] = "neutral"): MetricTrend {
+  return { direction: "flat", tone, label };
+}
+
 function formatTrendPercent(current: number, previous: number) {
   if (previous === 0 && current > 0) return "+∞%";
   if (previous === 0) return "%0";
@@ -414,9 +551,14 @@ export default function Home() {
 
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [debts, setDebts] = useState<Debt[]>([]);
+  const [historyFilter, setHistoryFilter] = useState<HistoryFilter>("all");
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
+  const [toastMessage, setToastMessage] = useState("");
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [txType, setTxType] = useState<TransactionType>("expense");
   const [txAccount, setTxAccount] = useState<AccountKey>("bank");
+  const [txTransferTarget, setTxTransferTarget] = useState<AccountKey>("cash");
   const [txCategory, setTxCategory] = useState(expenseCategories[0]);
   const [txAmount, setTxAmount] = useState("");
   const [txNote, setTxNote] = useState("");
@@ -424,6 +566,8 @@ export default function Home() {
   const [txIsConfirmed, setTxIsConfirmed] = useState(false);
   const [editingTransactionId, setEditingTransactionId] = useState<string | null>(null);
   const [editType, setEditType] = useState<TransactionType>("expense");
+  const [editTransferSource, setEditTransferSource] = useState<AccountKey>("bank");
+  const [editTransferTarget, setEditTransferTarget] = useState<AccountKey>("cash");
   const [editCategory, setEditCategory] = useState(expenseCategories[0]);
   const [editAmount, setEditAmount] = useState("");
   const [editNote, setEditNote] = useState("");
@@ -434,6 +578,22 @@ export default function Home() {
   const [analysisPeriod, setAnalysisPeriod] = useState("this-month");
   const [analysisCustomStart, setAnalysisCustomStart] = useState("");
   const [analysisCustomEnd, setAnalysisCustomEnd] = useState("");
+
+  function showToast(message: string) {
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    setToastMessage(message);
+    toastTimer.current = setTimeout(() => {
+      setToastMessage("");
+      toastTimer.current = null;
+    }, 2500);
+  }
+
+  useEffect(
+    () => () => {
+      if (toastTimer.current) clearTimeout(toastTimer.current);
+    },
+    [],
+  );
 
   // 0. KULLANICI OTURUMUNU DİNLEME
   useEffect(() => {
@@ -484,6 +644,7 @@ export default function Home() {
           date: String(row.date),
           type: row.type as TransactionType,
           account: row.account as AccountKey,
+          toAccount: row.to_account ? (row.to_account as AccountKey) : undefined,
           category: String(row.category),
           amount: Number(row.amount),
           note: String(row.note ?? ""),
@@ -536,62 +697,76 @@ export default function Home() {
   }, [baseBalances, transactions, debts, loaded, user]);
 
   function handleTransactionTypeChange(nextType: TransactionType) {
-    const nextCategories = nextType === "income" ? incomeCategories : expenseCategories;
     setTxType(nextType);
     setTxIsConfirmed(false);
+    if (nextType === "transfer") {
+      setTxCategory("Transfer");
+      const sourceAccount = transferSourceOptions.includes(txAccount) ? txAccount : "bank";
+      if (sourceAccount !== txAccount) setTxAccount(sourceAccount);
+      if (sourceAccount === txTransferTarget) {
+        setTxTransferTarget(sourceAccount === "cash" ? "bank" : "cash");
+      }
+      return;
+    }
+
+    const nextCategories = nextType === "income" ? incomeCategories : expenseCategories;
     if (!nextCategories.includes(txCategory)) {
       setTxCategory(nextCategories[0]);
     }
   }
 
   function handleEditTransactionTypeChange(nextType: TransactionType) {
-    const nextCategories = nextType === "income" ? incomeCategories : expenseCategories;
     setEditType(nextType);
+    if (nextType === "transfer") {
+      setEditCategory("Transfer");
+      const sourceAccount = transferSourceOptions.includes(editTransferSource)
+        ? editTransferSource
+        : "bank";
+      if (sourceAccount !== editTransferSource) setEditTransferSource(sourceAccount);
+      if (sourceAccount === editTransferTarget) {
+        setEditTransferTarget(sourceAccount === "cash" ? "bank" : "cash");
+      }
+      return;
+    }
+
+    const nextCategories = nextType === "income" ? incomeCategories : expenseCategories;
     if (!nextCategories.includes(editCategory)) {
       setEditCategory(nextCategories[0]);
     }
   }
 
-  const balances = useMemo(() => {
-    let cash = baseBalances.cash;
-    let bank = baseBalances.bank;
-    let benefit = baseBalances.benefit;
-    const savings = baseBalances.savings;
-    let creditDebt = baseBalances.creditDebt;
+  const balances = useMemo(
+    () => calculateBalances(baseBalances, transactions),
+    [baseBalances, transactions],
+  );
 
-    const orderedTransactions = [...transactions].sort(sortByCreatedAscending);
-
-    for (const item of orderedTransactions) {
-      if (item.type === "expense") {
-        if (item.account === "cash") cash -= item.amount;
-        if (item.account === "bank") bank -= item.amount;
-        if (item.account === "benefit") benefit -= item.amount;
-        if (item.account === "creditCard") creditDebt += item.amount;
-      }
-
-      if (item.type === "income" && item.isConfirmed) {
-        if (item.account === "cash") cash += item.amount;
-        if (item.account === "bank") bank += item.amount;
-        if (item.account === "benefit") benefit += item.amount;
-        if (item.account === "creditCard") creditDebt = Math.max(0, creditDebt - item.amount);
-      }
-    }
-
-    const mainMoney = cash + bank;
-    const totalAssets = cash + bank + savings - creditDebt;
-    const totalSpendable = totalAssets + benefit;
-
-    return {
-      cash,
-      bank,
-      benefit,
-      savings,
-      creditDebt,
-      mainMoney,
-      totalSpendable,
-      totalAssets,
-    };
-  }, [baseBalances, transactions]);
+  const currentMonth = analysisReferenceDate.slice(0, 7);
+  const previousMonth = shiftMonth(currentMonth, -1);
+  const previousMonthStart = `${previousMonth}-01`;
+  const previousMonthEnd = endOfMonth(previousMonth);
+  const hasPreviousMonthActivity = transactions.some(
+    (item) =>
+      item.date >= previousMonthStart &&
+      item.date <= previousMonthEnd &&
+      (item.type !== "income" || item.isConfirmed),
+  );
+  const hasCurrentMonthActivity = transactions.some(
+    (item) => item.date.slice(0, 7) === currentMonth,
+  );
+  const previousMonthBalances = useMemo(
+    () =>
+      calculateBalances(
+        baseBalances,
+        transactions.filter((item) => item.date <= previousMonthEnd),
+      ),
+    [baseBalances, previousMonthEnd, transactions],
+  );
+  const spendableBalanceTrend = hasPreviousMonthActivity
+    ? getMetricTrend(balances.totalSpendable, previousMonthBalances.totalSpendable)
+    : getFallbackTrend(hasCurrentMonthActivity ? "Bu ay aktif" : "Önceki ay verisi yok");
+  const totalAssetsTrend = hasPreviousMonthActivity
+    ? getMetricTrend(balances.totalAssets, previousMonthBalances.totalAssets)
+    : getFallbackTrend(hasCurrentMonthActivity ? "Bu ay aktif" : "Önceki ay verisi yok");
 
   const openingNetEntry =
     baseBalances.cash +
@@ -678,16 +853,19 @@ export default function Home() {
   const transactionSummary = useMemo(() => {
     let totalIncome = 0;
     let totalExpense = 0;
+    let transactionCount = 0;
 
     for (const item of analysisTransactions) {
       if (item.type === "income") totalIncome += item.amount;
       if (item.type === "expense") totalExpense += item.amount;
+      if (item.type === "expense" || item.isConfirmed) transactionCount += 1;
     }
 
     return {
       totalIncome,
       totalExpense,
       netFlow: totalIncome - totalExpense,
+      transactionCount,
     };
   }, [analysisTransactions]);
 
@@ -916,6 +1094,7 @@ export default function Home() {
       return {
         hasComparison: false,
         message: "Bu dönem için karşılaştırma yapılacak eşdeğer bir dönem bulunmuyor.",
+        metricTrends: null,
         items: [],
       };
     }
@@ -931,6 +1110,7 @@ export default function Home() {
       return {
         hasComparison: false,
         message: "Karşılaştırma için yeterli geçmiş veri bulunamadı.",
+        metricTrends: null,
         items: [],
       };
     }
@@ -959,10 +1139,24 @@ export default function Home() {
 
     const netDiff = currentSummary.netFlow - previousSummary.netFlow;
     const transactionDiff = currentSummary.transactionCount - previousSummary.transactionCount;
+    const transactionCountTrend = getMetricTrend(
+      currentSummary.transactionCount,
+      previousSummary.transactionCount,
+    );
 
     return {
       hasComparison: true,
       message: "",
+      metricTrends: {
+        income: getMetricTrend(currentSummary.totalIncome, previousSummary.totalIncome),
+        expense: getMetricTrend(
+          currentSummary.totalExpense + baseBalances.creditDebt,
+          previousSummary.totalExpense + baseBalances.creditDebt,
+          true,
+        ),
+        net: getMetricTrend(currentSummary.netFlow, previousSummary.netFlow),
+        count: { ...transactionCountTrend, tone: "neutral" as const },
+      },
       items: [
         {
           label: "Gelir değişimi",
@@ -974,7 +1168,7 @@ export default function Home() {
           label: "Gider değişimi",
           value: formatTrendPercent(currentSummary.totalExpense, previousSummary.totalExpense),
           detail: buildTrendLabel(currentSummary.totalExpense, previousSummary.totalExpense, "Gider arttı", "Gider azaldı"),
-          tone: getTrendTone(currentSummary.totalExpense, previousSummary.totalExpense),
+          tone: getTrendTone(previousSummary.totalExpense, currentSummary.totalExpense),
         },
         {
           label: "Net durum değişimi",
@@ -988,7 +1182,7 @@ export default function Home() {
             ? `${topIncreasedExpense.category} / +${formatMoney(topIncreasedExpense.diff)}`
             : "-",
           detail: topIncreasedExpense ? "Önceki döneme göre artış" : "Artan kategori yok",
-          tone: topIncreasedExpense ? "positive" : "neutral",
+          tone: topIncreasedExpense ? "negative" : "neutral",
         },
         {
           label: "En çok azalan gider kategorisi",
@@ -996,13 +1190,13 @@ export default function Home() {
             ? `${topDecreasedExpense.category} / -${formatMoney(Math.abs(topDecreasedExpense.diff))}`
             : "-",
           detail: topDecreasedExpense ? "Önceki döneme göre azalış" : "Azalan kategori yok",
-          tone: topDecreasedExpense ? "negative" : "neutral",
+          tone: topDecreasedExpense ? "positive" : "neutral",
         },
         {
           label: "İşlem sayısı değişimi",
           value: `${transactionDiff > 0 ? "+" : ""}${transactionDiff}`,
           detail: `${formatTrendPercent(currentSummary.transactionCount, previousSummary.transactionCount)} değişim`,
-          tone: getTrendTone(currentSummary.transactionCount, previousSummary.transactionCount),
+          tone: "neutral",
         },
       ],
     };
@@ -1012,12 +1206,43 @@ export default function Home() {
     analysisPeriod,
     analysisReferenceDate,
     analysisTransactions,
+    baseBalances.creditDebt,
     transactions,
   ]);
 
+  const analysisMetricTrends = trendAnalysis.metricTrends ?? {
+    income: getFallbackTrend(
+      transactionSummary.totalIncome > 0 ? "Bu dönemde aktif" : "Gelir kaydı yok",
+    ),
+    expense: getFallbackTrend(
+      transactionSummary.totalIncome > 0
+        ? `${formatPercent(
+            (totalExpenseIncludingOpeningDebt / transactionSummary.totalIncome) * 100,
+          )} gelire göre harcama`
+        : transactionSummary.totalExpense > 0
+          ? "Gelir kaydı yok"
+          : "Bu dönemde gider yok",
+    ),
+    net: getFallbackTrend(
+      transactionSummary.netFlow === 0
+        ? "Gelir ve gider dengede"
+        : "Bu dönemde aktif",
+    ),
+    count: getFallbackTrend(
+      transactionSummary.transactionCount > 0
+        ? `${transactionSummary.transactionCount} işlem bu dönemde`
+        : "Henüz işlem yok",
+    ),
+  };
+
   const sortedTransactions = useMemo(() => {
-    return [...transactions].sort(sortByDateNewest);
-  }, [transactions]);
+    const sorted = [...transactions].sort(sortByDateNewest);
+    if (historyFilter === "pending") {
+      return sorted.filter((item) => item.type === "income" && !item.isConfirmed);
+    }
+    if (historyFilter === "all") return sorted;
+    return sorted.filter((item) => item.type === historyFilter);
+  }, [historyFilter, transactions]);
 
   function updateBaseBalance(key: keyof BaseBalances, rawValue: string) {
     if (!user) return;
@@ -1060,18 +1285,24 @@ export default function Home() {
       return;
     }
 
+    if (txType === "transfer" && txAccount === txTransferTarget) {
+      alert("Kaynak ve hedef hesap aynı olamaz.");
+      return;
+    }
+
     const transactionDate = txDate || todayInputValue();
     const newTransaction: Transaction = {
       id: createId("tx"),
       date: transactionDate,
       type: txType,
       account: txAccount,
-      category: txCategory,
+      toAccount: txType === "transfer" ? txTransferTarget : undefined,
+      category: txType === "transfer" ? "Transfer" : txCategory,
       amount,
       note: txNote.trim(),
       createdAt: new Date().toISOString(),
       isConfirmed:
-        txType === "expense" ||
+        txType !== "income" ||
         (txIsConfirmed && transactionDate <= todayInputValue()),
       source: "manual",
     };
@@ -1096,10 +1327,15 @@ export default function Home() {
       created_at: newTransaction.createdAt,
       is_confirmed: newTransaction.isConfirmed,
       source: newTransaction.source,
+      ...(newTransaction.type === "transfer"
+        ? { to_account: newTransaction.toAccount }
+        : {}),
     });
 
     if (error) {
       console.error("İşlem ekleme hatası:", error);
+    } else {
+      showToast(txType === "transfer" ? "Transfer eklendi." : "İşlem eklendi.");
     }
   }
 
@@ -1125,11 +1361,18 @@ export default function Home() {
 
     if (error) {
       console.error("Gelir onay durumu güncelleme hatası:", error);
+    } else if (isConfirmed) {
+      showToast("Gelir onaylandı.");
     }
   }
 
   async function undoTransaction(transactionId: string) {
     if (!user) return;
+    if (pendingDeleteId !== transactionId) {
+      setPendingDeleteId(transactionId);
+      return;
+    }
+
     const target = transactions.find((item) => item.id === transactionId);
 
     if (!target) return;
@@ -1150,6 +1393,7 @@ export default function Home() {
     }
 
     setTransactions((current) => current.filter((item) => item.id !== transactionId));
+    setPendingDeleteId(null);
 
     const { error } = await supabase
       .from("transactions")
@@ -1158,12 +1402,17 @@ export default function Home() {
       .eq("user_id", user.id);
     if (error) {
       console.error("İşlem silme hatası:", error);
+    } else {
+      showToast("İşlem silindi.");
     }
   }
 
   function openEditTransaction(transaction: Transaction) {
+    setPendingDeleteId(null);
     setEditingTransactionId(transaction.id);
     setEditType(transaction.type);
+    setEditTransferSource(transaction.account);
+    setEditTransferTarget(transaction.toAccount ?? "cash");
     setEditCategory(transaction.category);
     setEditAmount(String(transaction.amount));
     setEditNote(transaction.note);
@@ -1190,9 +1439,21 @@ export default function Home() {
     const targetId = editingTransactionId;
     const targetTransaction = transactions.find((item) => item.id === targetId);
     if (!targetTransaction) return;
+    if (
+      editType === "transfer" &&
+      editTransferSource === editTransferTarget
+    ) {
+      alert("Kaynak ve hedef hesap aynı olamaz.");
+      return;
+    }
+
     const updatedIsConfirmed =
-      editType === "expense" ||
+      editType !== "income" ||
       (targetTransaction.type === "income" && targetTransaction.isConfirmed);
+    const updatedAccount =
+      editType === "transfer" ? editTransferSource : targetTransaction.account;
+    const updatedToAccount =
+      editType === "transfer" ? editTransferTarget : undefined;
 
     setTransactions((current) =>
       current.map((item) => {
@@ -1201,7 +1462,9 @@ export default function Home() {
           ...item,
           date: updatedDate,
           type: editType,
-          category: editCategory,
+          account: updatedAccount,
+          toAccount: updatedToAccount,
+          category: editType === "transfer" ? "Transfer" : editCategory,
           amount,
           note: updatedNote,
           isConfirmed: updatedIsConfirmed,
@@ -1216,7 +1479,11 @@ export default function Home() {
       .update({
         date: updatedDate,
         type: editType,
-        category: editCategory,
+        account: updatedAccount,
+        ...(editType === "transfer" || targetTransaction.type === "transfer"
+          ? { to_account: updatedToAccount ?? null }
+          : {}),
+        category: editType === "transfer" ? "Transfer" : editCategory,
         amount,
         note: updatedNote,
         is_confirmed: updatedIsConfirmed,
@@ -1234,6 +1501,11 @@ export default function Home() {
 
   return (
     <>
+      {toastMessage && (
+        <div className="toast" role="status" aria-live="polite">
+          {toastMessage}
+        </div>
+      )}
       <div className="fixed inset-0 z-0 overflow-hidden" aria-hidden="true">
         <Image
           src="/bg-fjord.jpg"
@@ -1271,19 +1543,24 @@ export default function Home() {
             <div className="miniStat">
               <span>Genel Harcanabilir</span>
               <strong>{formatMoney(balances.totalSpendable)}</strong>
+              <TrendIndicator trend={spendableBalanceTrend} />
             </div>
             <div className="miniStat">
               <span>Toplam Varlık</span>
               <strong>{formatMoney(balances.totalAssets)}</strong>
+              <TrendIndicator trend={totalAssetsTrend} />
             </div>
-            <button
-              className="btn secondary small logoutButton"
-              type="button"
-              onClick={() => supabase.auth.signOut()}
-            >
-              Çıkış Yap
-            </button>
           </div>
+          <button
+            className="btn secondary small logoutButton"
+            type="button"
+            onClick={() => supabase.auth.signOut()}
+            aria-label="Çıkış Yap"
+            title="Çıkış Yap"
+          >
+            <AppIcon name="logout" size={17} />
+            <span className="logoutLabel">Çıkış Yap</span>
+          </button>
         </header>
 
         <nav className="tabs">
@@ -1293,8 +1570,10 @@ export default function Home() {
               className={`tab ${activeTab === tab.id ? "active" : ""}`}
               onClick={() => setActiveTab(tab.id)}
               type="button"
+              aria-current={activeTab === tab.id ? "page" : undefined}
             >
-              {tab.label}
+              <AppIcon name={tabIcons[tab.id]} size={18} />
+              <span>{tab.label}</span>
             </button>
           ))}
         </nav>
@@ -1304,26 +1583,31 @@ export default function Home() {
             <div className="grid cards balanceCards" key={loaded ? "loaded" : "loading"}>
               <EditableMoneyCard
                 label="Nakit"
+                icon="cash"
                 value={baseBalances.cash}
                 onChange={(value) => updateBaseBalance("cash", value)}
               />
               <EditableMoneyCard
                 label="Banka"
+                icon="bank"
                 value={baseBalances.bank}
                 onChange={(value) => updateBaseBalance("bank", value)}
               />
               <EditableMoneyCard
                 label="Kredi Kartı Borcu"
+                icon="creditCard"
                 value={baseBalances.creditDebt}
                 onChange={(value) => updateBaseBalance("creditDebt", value)}
               />
               <EditableMoneyCard
                 label="Yan Hak"
+                icon="benefit"
                 value={baseBalances.benefit}
                 onChange={(value) => updateBaseBalance("benefit", value)}
               />
               <EditableMoneyCard
                 label="Birikim"
+                icon="savings"
                 value={baseBalances.savings}
                 onChange={(value) => updateBaseBalance("savings", value)}
               />
@@ -1348,7 +1632,7 @@ export default function Home() {
             <div className="sectionHeader">
               <div>
                 <h2>İşlem Ekle</h2>
-                <p>Gelir veya gider gir.</p>
+                <p>Gelir, gider veya hesaplar arası transfer gir.</p>
               </div>
             </div>
 
@@ -1364,38 +1648,69 @@ export default function Home() {
                   >
                     <option value="expense">Gider</option>
                     <option value="income">Gelir / Ödeme</option>
+                    <option value="transfer">Transfer</option>
                   </select>
                 </div>
 
                 <div className="field">
-                  <label>Hesap</label>
+                  <label>{txType === "transfer" ? "Kaynak Hesap" : "Hesap"}</label>
                   <select
                     value={txAccount}
-                    onChange={(event) => setTxAccount(event.target.value as AccountKey)}
+                    onChange={(event) => {
+                      const source = event.target.value as AccountKey;
+                      setTxAccount(source);
+                      if (txType === "transfer" && source === txTransferTarget) {
+                        setTxTransferTarget(source === "cash" ? "bank" : "cash");
+                      }
+                    }}
                   >
-                    {accountOptions.map((account) => (
-                      <option key={account} value={account}>
-                        {accountLabels[account]}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div className="field">
-                  <label>Kategori</label>
-                  <select
-                    value={txCategory}
-                    onChange={(event) => setTxCategory(event.target.value)}
-                  >
-                    {(txType === "income" ? incomeCategories : expenseCategories).map(
-                      (category) => (
-                        <option key={category} value={category}>
-                          {category}
+                    {(txType === "transfer" ? transferSourceOptions : accountOptions).map(
+                      (account) => (
+                        <option key={account} value={account}>
+                          {accountLabels[account]}
                         </option>
                       ),
                     )}
                   </select>
                 </div>
+
+                {txType === "transfer" ? (
+                  <div className="field">
+                    <label>Hedef Hesap</label>
+                    <select
+                      value={txTransferTarget}
+                      onChange={(event) =>
+                        setTxTransferTarget(event.target.value as AccountKey)
+                      }
+                    >
+                      {transferTargetOptions
+                        .filter((account) => account !== txAccount)
+                        .map((account) => (
+                          <option key={account} value={account}>
+                            {account === "creditCard"
+                              ? "Kredi Kartı Borcu"
+                              : accountLabels[account]}
+                          </option>
+                        ))}
+                    </select>
+                  </div>
+                ) : (
+                  <div className="field">
+                    <label>Kategori</label>
+                    <select
+                      value={txCategory}
+                      onChange={(event) => setTxCategory(event.target.value)}
+                    >
+                      {(txType === "income" ? incomeCategories : expenseCategories).map(
+                        (category) => (
+                          <option key={category} value={category}>
+                            {category}
+                          </option>
+                        ),
+                      )}
+                    </select>
+                  </div>
+                )}
 
                 <div className="field">
                   <label>Tutar</label>
@@ -1455,7 +1770,7 @@ export default function Home() {
 
               <div className="buttonRow">
                 <button className="btn" type="submit">
-                  İşlemi Ekle
+                  {txType === "transfer" ? "Transferi Ekle" : "İşlemi Ekle"}
                 </button>
                 <button
                   className="btn secondary"
@@ -1483,8 +1798,36 @@ export default function Home() {
               </div>
             </div>
 
+            <div className="historyFilters" role="group" aria-label="İşlem filtreleri">
+              {(
+                [
+                  ["all", "Tümü"],
+                  ["pending", "Bekleyenler"],
+                  ["income", "Gelir"],
+                  ["expense", "Gider"],
+                  ["transfer", "Transfer"],
+                ] as const
+              ).map(([filter, label]) => (
+                <button
+                  key={filter}
+                  className={`historyFilter ${historyFilter === filter ? "active" : ""}`}
+                  type="button"
+                  aria-pressed={historyFilter === filter}
+                  onClick={() => setHistoryFilter(filter)}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+
             {sortedTransactions.length === 0 ? (
-              <Empty text="Henüz işlem yok." />
+              <Empty
+                text={
+                  transactions.length === 0
+                    ? "Henüz işlem yok."
+                    : "Bu filtrede işlem bulunamadı."
+                }
+              />
             ) : (
               <div className="list">
                 {sortedTransactions.map((item) => (
@@ -1499,19 +1842,29 @@ export default function Home() {
                                 : item.type
                             }`}
                           >
-                            {item.type === "income"
-                              ? item.isConfirmed
-                                ? "Gelir"
-                                : "Bekliyor"
-                              : "Gider"}
+                            {item.type === "transfer"
+                              ? "Transfer"
+                              : item.type === "income"
+                                ? item.isConfirmed
+                                  ? "Gelir"
+                                  : "Bekliyor"
+                                : "Gider"}
                           </span>
-                          <span>{item.category}</span>
+                          {item.type !== "transfer" && <span>{item.category}</span>}
                           {item.source === "debtPayment" && <span className="pill">Ödeme</span>}
                         </div>
 
                         <div className="meta">
                           <span>{formatDate(item.date)}</span>
-                          <span>{accountLabels[item.account]}</span>
+                          <span>
+                            {item.type === "transfer"
+                              ? `${accountLabels[item.account]} → ${
+                                  item.toAccount === "creditCard"
+                                    ? "Kredi Kartı Borcu"
+                                    : accountLabels[item.toAccount ?? "cash"]
+                                }`
+                              : accountLabels[item.account]}
+                          </span>
                         </div>
 
                         {item.note && <p className="note">{item.note}</p>}
@@ -1523,7 +1876,7 @@ export default function Home() {
                             item.type === "income" && !item.isConfirmed ? "pending" : ""
                           }`}
                         >
-                          {item.type === "income" ? "+" : "-"}
+                          {item.type === "income" ? "+" : item.type === "expense" ? "−" : "↔ "}
                           {formatMoney(item.amount)}
                         </div>
 
@@ -1540,8 +1893,17 @@ export default function Home() {
                             type="button"
                             onClick={() => undoTransaction(item.id)}
                           >
-                            Geri Al
+                            {pendingDeleteId === item.id ? "Emin misin?" : "Geri Al"}
                           </button>
+                          {pendingDeleteId === item.id && (
+                            <button
+                              className="btn secondary small"
+                              type="button"
+                              onClick={() => setPendingDeleteId(null)}
+                            >
+                              İptal
+                            </button>
+                          )}
                           {item.type === "income" && (
                             <button
                               className={`btn small ${item.isConfirmed ? "secondary" : "success"}`}
@@ -1579,27 +1941,72 @@ export default function Home() {
                             >
                               <option value="expense">Gider</option>
                               <option value="income">Gelir / Ödeme</option>
+                              <option value="transfer">Transfer</option>
                             </select>
                           </div>
 
-                          <div className="field">
-                            <label>Kategori</label>
-                            <select
-                              value={editCategory}
-                              onChange={(event) => setEditCategory(event.target.value)}
-                            >
-                              {[
-                                ...new Set([
-                                  ...(editType === "income" ? incomeCategories : expenseCategories),
-                                  editCategory,
-                                ]),
-                              ].map((category) => (
-                                <option key={category} value={category}>
-                                  {category}
-                                </option>
-                              ))}
-                            </select>
-                          </div>
+                            {editType === "transfer" ? (
+                              <>
+                                <div className="field">
+                                  <label>Kaynak Hesap</label>
+                                  <select
+                                    value={editTransferSource}
+                                    onChange={(event) => {
+                                      const source = event.target.value as AccountKey;
+                                      setEditTransferSource(source);
+                                      if (source === editTransferTarget) {
+                                        setEditTransferTarget(source === "cash" ? "bank" : "cash");
+                                      }
+                                    }}
+                                  >
+                                    {transferSourceOptions.map((account) => (
+                                      <option key={account} value={account}>
+                                        {accountLabels[account]}
+                                      </option>
+                                    ))}
+                                  </select>
+                                </div>
+
+                                <div className="field">
+                                  <label>Hedef Hesap</label>
+                                  <select
+                                    value={editTransferTarget}
+                                    onChange={(event) =>
+                                      setEditTransferTarget(event.target.value as AccountKey)
+                                    }
+                                  >
+                                    {transferTargetOptions
+                                      .filter((account) => account !== editTransferSource)
+                                      .map((account) => (
+                                        <option key={account} value={account}>
+                                          {account === "creditCard"
+                                            ? "Kredi Kartı Borcu"
+                                            : accountLabels[account]}
+                                        </option>
+                                      ))}
+                                  </select>
+                                </div>
+                              </>
+                            ) : (
+                              <div className="field">
+                                <label>Kategori</label>
+                                <select
+                                  value={editCategory}
+                                  onChange={(event) => setEditCategory(event.target.value)}
+                                >
+                                  {[
+                                    ...new Set([
+                                      ...(editType === "income" ? incomeCategories : expenseCategories),
+                                      editCategory,
+                                    ]),
+                                  ].map((category) => (
+                                    <option key={category} value={category}>
+                                      {category}
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+                            )}
 
                           <div className="field">
                             <label>Tutar</label>
@@ -1673,13 +2080,35 @@ export default function Home() {
               </div>
             </section>
 
-            <div className="grid cards analysisSummaryGrid">
-              <ReadonlyMoneyCard label="Toplam Gelir" value={formatMoney(transactionSummary.totalIncome)} />
+            <div className="grid cards analysisSummaryGrid transactionSummaryGrid">
+              <ReadonlyMoneyCard
+                label="Toplam Gelir"
+                value={formatMoney(transactionSummary.totalIncome)}
+                icon="income"
+                iconTone="income"
+                trend={analysisMetricTrends.income}
+              />
               <ReadonlyMoneyCard
                 label="Toplam Gider"
                 value={formatMoney(totalExpenseIncludingOpeningDebt)}
+                icon="expense"
+                iconTone="expense"
+                trend={analysisMetricTrends.expense}
               />
-              <ReadonlyMoneyCard label="Net Durum" value={formatMoney(transactionSummary.netFlow)} />
+              <ReadonlyMoneyCard
+                label="Net Akış"
+                value={formatMoney(transactionSummary.netFlow)}
+                icon="net"
+                iconTone="net"
+                trend={analysisMetricTrends.net}
+              />
+              <ReadonlyMoneyCard
+                label="İşlem Sayısı"
+                value={String(transactionSummary.transactionCount)}
+                icon="count"
+                iconTone="count"
+                trend={analysisMetricTrends.count}
+              />
             </div>
 
             <div className="glass smartSummaryCard">
@@ -1889,10 +2318,12 @@ export default function Home() {
 
 function EditableMoneyCard({
   label,
+  icon,
   value,
   onChange,
 }: {
   label: string;
+  icon: IconName;
   value: number;
   onChange: (value: string) => void;
 }) {
@@ -1906,7 +2337,10 @@ function EditableMoneyCard({
 
   return (
     <div className="card glass editableMoneyCard">
-      <div className="cardLabel">{label}</div>
+      <div className="accountCardHeading">
+        <AppIcon name={icon} size={15} />
+        <div className="cardLabel">{label}</div>
+      </div>
       <input
         className="moneyInput"
         type="text"
@@ -1922,12 +2356,184 @@ function EditableMoneyCard({
   );
 }
 
-function ReadonlyMoneyCard({ label, value }: { label: string; value: string }) {
+function ReadonlyMoneyCard({
+  label,
+  value,
+  icon,
+  iconTone,
+  trend,
+}: {
+  label: string;
+  value: string;
+  icon?: IconName;
+  iconTone?: "income" | "expense" | "net" | "count";
+  trend?: MetricTrend;
+}) {
   return (
-    <div className="card glass">
-      <div className="cardLabel">{label}</div>
+    <div className={`card glass ${icon ? "metricCard" : ""}`}>
+      <div className="metricCardHeading">
+        {icon && (
+          <span className={`metricIconBadge ${iconTone ?? "net"}`} aria-hidden="true">
+            <AppIcon name={icon} size={17} />
+          </span>
+        )}
+        <div className="cardLabel">{label}</div>
+      </div>
       <div className="cardValue readonlyTotal">{value}</div>
+      {trend && <TrendIndicator trend={trend} />}
     </div>
+  );
+}
+
+function TrendIndicator({ trend }: { trend: MetricTrend }) {
+  const icon =
+    trend.direction === "up"
+      ? "trendUp"
+      : trend.direction === "down"
+        ? "trendDown"
+        : "trendFlat";
+
+  return (
+    <div className={`trendIndicator ${trend.tone}`}>
+      <AppIcon name={icon} size={14} />
+      <span>{trend.label}</span>
+    </div>
+  );
+}
+
+function AppIcon({ name, size = 18 }: { name: IconName; size?: number }) {
+  let shape: ReactNode;
+
+  switch (name) {
+    case "home":
+      shape = (
+        <>
+          <path d="m3 10 9-7 9 7" />
+          <path d="M5 9v12h14V9M9 21v-8h6v8" />
+        </>
+      );
+      break;
+    case "transfer":
+      shape = (
+        <>
+          <path d="M4 7h15l-3-3m3 3-3 3" />
+          <path d="M20 17H5l3 3m-3-3 3-3" />
+        </>
+      );
+      break;
+    case "history":
+      shape = (
+        <>
+          <circle cx="12" cy="12" r="9" />
+          <path d="M12 7v5l3 2" />
+        </>
+      );
+      break;
+    case "analysis":
+      shape = (
+        <>
+          <path d="M4 20V11m5 9V5m6 15v-7m5 7V8" />
+          <path d="M2 20h20" />
+        </>
+      );
+      break;
+    case "logout":
+      shape = (
+        <>
+          <path d="M10 17l5-5-5-5m5 5H3" />
+          <path d="M12 3h7a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-7" />
+        </>
+      );
+      break;
+    case "cash":
+      shape = (
+        <>
+          <rect x="3" y="6" width="18" height="13" rx="2" />
+          <path d="M3 10h18m-9 2v1" />
+          <circle cx="12" cy="13" r="2" />
+        </>
+      );
+      break;
+    case "bank":
+      shape = (
+        <>
+          <path d="m3 9 9-6 9 6M4 10h16M5 20h14M7 10v10m5-10v10m5-10v10" />
+        </>
+      );
+      break;
+    case "creditCard":
+      shape = (
+        <>
+          <rect x="3" y="5" width="18" height="14" rx="2" />
+          <path d="M3 10h18m-14 5h4" />
+        </>
+      );
+      break;
+    case "benefit":
+      shape = (
+        <>
+          <path d="m12 3 1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8L12 3Z" />
+          <path d="m19 15 .9 2.1L22 18l-2.1.9L19 21l-.9-2.1L16 18l2.1-.9L19 15Z" />
+        </>
+      );
+      break;
+    case "savings":
+      shape = (
+        <>
+          <path d="M5 10a7 7 0 0 1 12-2h3v6h-3a7 7 0 0 1-12 2H3v-5h2Z" />
+          <circle cx="14" cy="11" r="1" />
+          <path d="M8 7V4m-3 5L3 7m4 10v2" />
+        </>
+      );
+      break;
+    case "income":
+      shape = <path d="M12 19V5m-7 7 7-7 7 7" />;
+      break;
+    case "expense":
+      shape = <path d="M12 5v14m7-7-7 7-7-7" />;
+      break;
+    case "net":
+      shape = (
+        <>
+          <path d="M3 17c3-8 5 5 8-2s5-7 10-7" />
+          <path d="M16 8h5v5" />
+        </>
+      );
+      break;
+    case "count":
+      shape = (
+        <>
+          <path d="M9 6h11M9 12h11M9 18h11" />
+          <path d="M4 6h.01M4 12h.01M4 18h.01" />
+        </>
+      );
+      break;
+    case "trendUp":
+      shape = <path d="m5 16 6-6 4 4 5-7m-5 0h5v5" />;
+      break;
+    case "trendDown":
+      shape = <path d="m5 8 6 6 4-4 5 7m-5 0h5v-5" />;
+      break;
+    case "trendFlat":
+      shape = <path d="M4 12h16" />;
+      break;
+  }
+
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      focusable="false"
+    >
+      {shape}
+    </svg>
   );
 }
 

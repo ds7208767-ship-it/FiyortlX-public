@@ -1,8 +1,8 @@
 export type TabKey = "overview" | "transaction" | "history" | "analysis";
 
-export type TransactionType = "income" | "expense";
+export type TransactionType = "income" | "expense" | "transfer";
 
-export type AccountKey = "cash" | "bank" | "creditCard" | "benefit";
+export type AccountKey = "cash" | "bank" | "creditCard" | "benefit" | "savings";
 
 export type AnalysisMode = "category" | "flow" | "pie";
 
@@ -19,6 +19,7 @@ export type Transaction = {
   date: string;
   type: TransactionType;
   account: AccountKey;
+  toAccount?: AccountKey;
   category: string;
   amount: number;
   note: string;
