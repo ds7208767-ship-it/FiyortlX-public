@@ -156,6 +156,15 @@ button {
   object-fit: cover;
 }
 
+.brandWithLimit .logo {
+  border-radius: 12px;
+}
+
+.brandWithLimit .logoImage {
+  transform: scale(1.35);
+  transform-origin: center;
+}
+
         h1,
         h2,
         h3,
@@ -183,6 +192,10 @@ button {
         }
 
         .miniStat {
+          display: flex;
+          flex-direction: column;
+          justify-content: center;
+          gap: 4px;
           padding: 14px;
           border: 1px solid var(--frosted-border);
           border-radius: 18px;
@@ -196,7 +209,7 @@ button {
           display: block;
           color: var(--muted);
           font-size: 13px;
-          margin-bottom: 4px;
+          margin-bottom: 0;
         }
 
         .miniStat strong {
@@ -1543,7 +1556,7 @@ body {
   }
 
   .miniStat span {
-    margin-bottom: 2px;
+    margin-bottom: 0;
     font-size: 11px;
   }
 
@@ -1948,10 +1961,6 @@ body {
   letter-spacing: -0.025em;
 }
 
-.miniStat .trendIndicator {
-  margin-top: 6px;
-}
-
 .trendIndicator {
   display: flex;
   min-height: 16px;
@@ -2076,14 +2085,14 @@ body {
 
   .hero {
     position: relative;
-    padding-right: 104px;
+    padding-right: 120px;
   }
 
   .heroActions {
     position: absolute;
     top: 14px;
     right: 14px;
-    gap: 7px;
+    gap: 10px;
   }
 }
 
@@ -2091,15 +2100,15 @@ body {
   display: flex;
   flex: 0 0 auto;
   align-items: center;
-  gap: 9px;
+  gap: 10px;
 }
 
 .iconButton,
 .profileAvatar {
   display: grid;
-  width: 42px;
-  height: 42px;
-  flex: 0 0 42px;
+  width: 44px;
+  height: 44px;
+  flex: 0 0 44px;
   place-items: center;
   border: 1px solid rgba(255, 255, 255, 0.16);
   border-radius: 50%;
@@ -2142,6 +2151,180 @@ body {
   -webkit-backdrop-filter: blur(8px);
 }
 
+.deleteConfirmOverlay {
+  position: fixed;
+  z-index: 90;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+  background: rgba(2, 8, 23, 0.72);
+  backdrop-filter: blur(9px);
+  -webkit-backdrop-filter: blur(9px);
+  animation: deleteOverlayIn 160ms ease-out;
+}
+
+.deleteConfirmModal {
+  width: min(100%, 430px);
+  padding: 26px;
+  border-color: rgba(186, 230, 253, 0.24);
+  border-radius: 26px;
+  background:
+    radial-gradient(ellipse at 50% 0%, rgba(56, 189, 248, 0.13), transparent 58%),
+    rgba(8, 19, 36, 0.94);
+  text-align: center;
+  animation: deleteModalIn 180ms ease-out;
+}
+
+.deleteConfirmIcon {
+  display: grid;
+  width: 54px;
+  height: 54px;
+  margin: 0 auto 15px;
+  place-items: center;
+  border: 1px solid rgba(251, 146, 60, 0.32);
+  border-radius: 18px;
+  color: #fdba74;
+  background: linear-gradient(145deg, rgba(251, 146, 60, 0.16), rgba(220, 38, 38, 0.08));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12), 0 8px 26px rgba(2, 8, 23, 0.28);
+}
+
+.deleteConfirmIcon svg {
+  width: 26px;
+  height: 26px;
+}
+
+.deleteConfirmModal h2 {
+  color: #f8fafc;
+  font-size: 21px;
+  font-weight: 900;
+  letter-spacing: -0.025em;
+}
+
+.deleteConfirmTransaction {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 18px 0 14px;
+  padding: 14px 15px;
+  border: 1px solid rgba(186, 230, 253, 0.15);
+  border-radius: 17px;
+  background: rgba(255, 255, 255, 0.045);
+  text-align: left;
+}
+
+.deleteConfirmTransaction > strong {
+  overflow: hidden;
+  color: #e2e8f0;
+  font-size: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.deleteConfirmTransaction .amount {
+  flex: 0 0 auto;
+  font-variant-numeric: tabular-nums;
+  font-weight: 900;
+}
+
+.deleteConfirmModal > p {
+  color: #b7c8d8;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.deleteConfirmActions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-top: 23px;
+}
+
+.deleteConfirmActions .btn {
+  min-height: 46px;
+}
+
+.deleteConfirmModal .deleteConfirmDanger {
+  border: 1px solid rgba(251, 113, 133, 0.46);
+  background: linear-gradient(145deg, rgba(190, 24, 93, 0.9), rgba(127, 29, 29, 0.88));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.17),
+    0 8px 24px rgba(127, 29, 29, 0.27);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+.deleteConfirmModal .deleteConfirmDanger:hover:not(:disabled) {
+  border-color: rgba(254, 202, 202, 0.7);
+  background: linear-gradient(145deg, rgba(225, 29, 72, 0.94), rgba(153, 27, 27, 0.94));
+}
+
+.deleteConfirmDanger:disabled {
+  cursor: wait;
+  opacity: 0.7;
+}
+
+.deleteAccountModal {
+  max-height: min(90dvh, 720px);
+  overflow: auto;
+  border-color: rgba(251, 113, 133, 0.28);
+  background:
+    radial-gradient(ellipse at 50% 0%, rgba(190, 24, 93, 0.12), transparent 58%),
+    rgba(17, 15, 29, 0.96);
+}
+
+.deleteAccountWarningIcon {
+  border-color: rgba(251, 113, 133, 0.34);
+  color: #fda4af;
+  background: linear-gradient(145deg, rgba(190, 24, 93, 0.18), rgba(127, 29, 29, 0.13));
+}
+
+.deleteAccountConfirmField {
+  display: grid;
+  gap: 8px;
+  margin-top: 20px;
+  text-align: left;
+}
+
+.deleteAccountConfirmField label {
+  color: #fecdd3;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.deleteAccountConfirmField input {
+  min-height: 46px;
+  border-color: rgba(251, 113, 133, 0.24);
+  background: rgba(2, 8, 23, 0.56);
+  text-align: center;
+  letter-spacing: 0.12em;
+}
+
+.deleteAccountConfirmField input:focus {
+  border-color: rgba(251, 113, 133, 0.58);
+  box-shadow: 0 0 0 2px rgba(251, 113, 133, 0.12);
+}
+
+.deleteAccountError {
+  overflow-wrap: anywhere;
+  text-align: left;
+}
+
+.deleteAccountModal .deleteConfirmActions {
+  margin-top: 18px;
+}
+
+@keyframes deleteOverlayIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes deleteModalIn {
+  from { opacity: 0; transform: translateY(8px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
 .accountMenu {
   width: min(100%, 520px);
   max-height: min(90dvh, 760px);
@@ -2150,6 +2333,22 @@ body {
   border: 1px solid rgba(255, 255, 255, 0.17);
   border-radius: 24px;
   background: rgba(11, 22, 40, 0.94);
+}
+
+.accountMenu.profileModal {
+  max-height: 88vh;
+  overflow-y: auto;
+  padding: 20px;
+}
+
+.profileModal .accountMenuHeader {
+  align-items: center;
+}
+
+@media (min-width: 640px) {
+  .accountMenu.profileModal {
+    padding: 24px;
+  }
 }
 
 .accountMenuHeader {
@@ -2183,6 +2382,61 @@ body {
   border: 1px solid var(--frosted-border);
   border-radius: 18px;
   background: rgba(255, 255, 255, 0.035);
+}
+
+.accountDataActions {
+  margin-top: 14px;
+}
+
+.accountExportButton,
+.accountDeleteStart {
+  display: flex;
+  width: 100%;
+  min-height: 46px;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.accountExportButton svg,
+.accountDeleteStart svg {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
+}
+
+.accountDangerZone {
+  display: grid;
+  gap: 0;
+  margin-top: 16px;
+  padding: 14px;
+  border: 1px solid rgba(239, 68, 68, 0.2);
+  border-radius: 12px;
+  background: rgba(69, 10, 10, 0.2);
+}
+
+.accountDangerZone h3 {
+  color: #fecdd3;
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.accountDangerZone p {
+  margin-top: 5px;
+  color: #c08a98;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.accountDeleteStart {
+  border: 1px solid rgba(251, 113, 133, 0.3);
+  background: linear-gradient(135deg, rgba(159, 18, 57, 0.75), rgba(127, 29, 29, 0.74));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1);
+}
+
+.accountDeleteStart:hover {
+  border-color: rgba(254, 202, 202, 0.58);
+  background: linear-gradient(135deg, rgba(190, 24, 93, 0.88), rgba(153, 27, 27, 0.88));
 }
 
 .accountAvatarPreview {
@@ -2254,8 +2508,44 @@ body {
   width: 100%;
   align-items: center;
   justify-content: center;
-  gap: 9px;
+  gap: 8px;
   margin-top: 18px;
+}
+
+.accountMenu .accountActionButton {
+  min-height: 42px;
+  padding: 10px 16px;
+  border-radius: 12px;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 20px;
+  white-space: nowrap;
+  box-shadow: none;
+}
+
+.accountMenu .accountExportButton,
+.accountMenu .accountSignOut {
+  border-color: rgba(148, 163, 184, 0.18);
+  color: #dbeafe;
+  background: rgba(255, 255, 255, 0.045);
+}
+
+.accountMenu .accountExportButton:hover:not(:disabled),
+.accountMenu .accountSignOut:hover:not(:disabled) {
+  border-color: rgba(125, 211, 252, 0.34);
+  background: rgba(56, 189, 248, 0.1);
+}
+
+.accountMenu .accountDeleteStart {
+  border-color: rgba(251, 113, 133, 0.3);
+  color: #ffe4e6;
+  background: linear-gradient(135deg, rgba(159, 18, 57, 0.75), rgba(127, 29, 29, 0.74));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1);
+}
+
+.accountMenu .accountDeleteStart:hover:not(:disabled) {
+  border-color: rgba(254, 202, 202, 0.58);
+  background: linear-gradient(135deg, rgba(190, 24, 93, 0.88), rgba(153, 27, 27, 0.88));
 }
 
 .accountError,
@@ -2358,9 +2648,9 @@ button:disabled {
 
   .heroActions .iconButton,
   .heroActions .profileAvatar {
-    width: 36px;
-    height: 36px;
-    flex-basis: 36px;
+    width: 44px;
+    height: 44px;
+    flex-basis: 44px;
   }
 
   .accountMenu {
@@ -2585,8 +2875,7 @@ button:disabled {
   white-space: nowrap;
 }
 
-.monthlyLimitSetup:hover,
-.monthlyLimitSettings:hover {
+.monthlyLimitSetup:hover {
   border-color: rgba(186, 230, 253, 0.62);
   background: rgba(56, 189, 248, 0.16);
 }
@@ -2596,14 +2885,19 @@ button:disabled {
   min-width: 220px;
   max-width: 310px;
   flex: 1 1 270px;
-  gap: 4px;
-  padding: 8px 10px 7px;
-  border: 1px solid rgba(125, 211, 252, 0.23);
-  border-radius: 16px;
-  background: rgba(8, 24, 43, 0.72);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.07);
+  gap: 0;
+  padding: 10px 14px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 18px;
+  background: rgba(11, 22, 40, 0.68);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.06),
+    0 8px 22px rgba(2, 8, 23, 0.14);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
+  transition:
+    box-shadow 240ms ease,
+    border-color 240ms ease;
 }
 
 .monthlyLimitTopline {
@@ -2612,131 +2906,88 @@ button:disabled {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
+  min-height: 18px;
+  margin-bottom: 10px;
 }
 
-.monthlyLimitReadout {
+.monthlyLimitTitle {
+  display: block;
+  color: #e2e8f0;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.monthlyLimitMeta {
   display: flex;
-  min-width: 0;
-  flex: 1 1 auto;
-  align-items: baseline;
-  justify-content: space-between;
+  align-items: center;
   gap: 8px;
 }
 
-.monthlyLimitReadout span {
-  overflow: hidden;
-  color: #a5c9db;
-  font-size: 10px;
-  font-weight: 800;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.monthlyLimitReadout strong {
-  color: #f0f9ff;
-  font-size: 11px;
+.monthlyLimitHeaderPercent {
+  color: rgba(186, 230, 253, 0.7);
+  font-size: 12px;
   font-variant-numeric: tabular-nums;
-  font-weight: 850;
-  white-space: nowrap;
+  font-weight: 500;
 }
 
 .monthlyLimitSettings {
   display: grid;
-  width: 26px;
-  height: 26px;
-  flex: 0 0 26px;
+  width: 22px;
+  height: 22px;
+  flex: 0 0 22px;
   place-items: center;
-  border: 1px solid rgba(255, 255, 255, 0.13);
-  border-radius: 50%;
-  color: #bae6fd;
-  background: rgba(255, 255, 255, 0.055);
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  color: #b7c8d8;
+  background: transparent;
+  opacity: 0.5;
+  transition:
+    color 160ms ease,
+    opacity 160ms ease,
+    background 160ms ease;
+}
+
+.monthlyLimitSettings:hover,
+.monthlyLimitSettings:focus-visible {
+  color: #e2f6ff;
+  background: rgba(125, 211, 252, 0.07);
+  opacity: 0.95;
 }
 
 .monthlyLimitTrack {
   position: relative;
-  height: 8px;
-  margin: 3px 1px;
-  border: 1px solid rgba(255,  255, 255, 0.1);
-  border-radius: 999px;
-  background: rgba(8, 47, 73, 0.74);
+  width: 100%;
+  height: 24px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 9px;
+  background: rgba(2, 6, 23, 0.7);
 }
 
 .monthlyLimitFill {
+  min-width: 0;
   height: 100%;
-  border-radius: inherit;
+  border-radius: 8px;
   transition:
     width 320ms ease,
-    background 320ms ease,
-    box-shadow 320ms ease;
+    background 320ms ease;
 }
 
 .monthlyLimitFill.tier-water {
-  background: linear-gradient(90deg, #0284c7, #22d3ee);
-  box-shadow: 0 0 9px rgba(34, 211, 238, 0.34);
+  background: linear-gradient(100deg, #0c4a6e, #0369a1 55%, rgba(6, 182, 212, 0.9));
 }
 
 .monthlyLimitFill.tier-deep {
-  background: linear-gradient(90deg, #1e3a8a, #0369a1 58%, #67e8f9);
-  box-shadow: 0 0 10px rgba(56, 189, 248, 0.36);
+  background: linear-gradient(100deg, #082f49, #075985 48%, #38bdf8 74%, #bae6fd);
 }
 
 .monthlyLimitFill.tier-freezing {
-  background: linear-gradient(90deg, #075985, #a5f3fc 72%, #fff);
-  box-shadow: 0 0 10px rgba(207, 250, 254, 0.42);
+  background: linear-gradient(100deg, #075985, #38bdf8 58%, #e0f2fe);
 }
 
 .monthlyLimitFill.tier-frozen {
-  background: linear-gradient(90deg, #f8fdff, #bae6fd 58%, #fff);
-  box-shadow: 0 0 16px rgba(186, 230, 253, 0.65);
-}
-
-.monthlyLimitTrack.tier-freezing {
-  box-shadow: 0 0 0 1px rgba(165, 243, 252, 0.42);
-}
-
-.monthlyLimitTrack.tier-frozen {
-  border-color: rgba(224, 242, 254, 0.88);
-  background: rgba(224, 242, 254, 0.17);
-  box-shadow: 0 0 16px rgba(186, 230, 253, 0.65);
-}
-
-.monthlyLimitIcicles {
-  position: absolute;
-  z-index: 2;
-  left: 7px;
-  width: calc(100% - 14px);
-  height: 12px;
-  overflow: visible;
-  fill: rgba(224, 242, 254, 0.92);
-  stroke: rgba(255, 255, 255, 0.72);
-  stroke-width: 0.45;
-  filter: drop-shadow(0 0 4px rgba(186, 230, 253, 0.7));
-  pointer-events: none;
-}
-
-.monthlyLimitIcicles.top {
-  top: -7px;
-}
-
-.monthlyLimitIcicles.bottom {
-  bottom: -7px;
-  transform: rotate(180deg);
-}
-
-.monthlyLimitFooter {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  color: #9fb6c8;
-  font-size: 9px;
-  font-weight: 750;
-  line-height: 1.1;
-}
-
-.tier-freezing .monthlyLimitFooter,
-.tier-frozen .monthlyLimitFooter {
-  color: #d9f4ff;
+  background: linear-gradient(105deg, #bae6fd, rgba(255, 255, 255, 0.95) 52%, #cffafe);
 }
 
 .monthlyLimitModal {
@@ -2813,6 +3064,11 @@ button:disabled {
     border-radius: 20px;
   }
 
+  .deleteConfirmModal {
+    padding: 21px 17px;
+    border-radius: 22px;
+  }
+
   .monthlyLimitModalActions {
     display: grid;
     grid-template-columns: 1fr;
@@ -2847,5 +3103,661 @@ button:disabled {
 
   .heroStats {
     grid-column: 1 / -1;
+  }
+}
+
+@media (min-width: 769px) {
+  .tabs {
+    justify-content: center;
+    gap: 16px;
+  }
+}
+
+.authScreen {
+  display: grid;
+  min-height: 100vh;
+  min-height: 100svh;
+  place-items: center;
+  overflow: hidden;
+  padding: 28px 20px;
+  isolation: isolate;
+  background:
+    radial-gradient(ellipse at 50% 42%, rgba(14, 116, 144, 0.13), transparent 47%),
+    radial-gradient(ellipse at 12% 90%, rgba(14, 116, 144, 0.1), transparent 42%),
+    #060d18;
+}
+
+.authScreen::before,
+.authScreen::after {
+  position: absolute;
+  z-index: 0;
+  width: 360px;
+  height: 360px;
+  border-radius: 50%;
+  background: rgba(14, 165, 233, 0.08);
+  content: "";
+  filter: blur(90px);
+  pointer-events: none;
+}
+
+.authScreen::before {
+  top: -190px;
+  right: -120px;
+}
+
+.authScreen::after {
+  bottom: -240px;
+  left: -150px;
+  background: rgba(8, 145, 178, 0.08);
+}
+
+.authCard {
+  position: relative;
+  z-index: 1;
+  width: min(100%, 440px);
+  padding: 34px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 28px;
+  background: rgba(7, 20, 37, 0.78);
+  box-shadow:
+    0 28px 80px rgba(0, 0, 0, 0.38),
+    inset 0 1px 0 rgba(255, 255, 255, 0.055);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+}
+
+.authBrand {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+}
+
+.authLogo {
+  width: 52px;
+  height: 52px;
+  flex: 0 0 52px;
+  overflow: hidden;
+  border: 1px solid rgba(186, 230, 253, 0.2);
+  border-radius: 16px;
+  box-shadow: 0 8px 24px rgba(2, 132, 199, 0.18);
+}
+
+.authLogo img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.authEyebrow {
+  margin-bottom: 4px;
+  color: #94a3b8;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+.authBrand h1 {
+  color: #f8fafc;
+  font-size: 31px;
+  font-weight: 850;
+  letter-spacing: -0.055em;
+  line-height: 1;
+}
+
+.authSubtitle {
+  max-width: 330px;
+  margin: 20px auto 24px;
+  color: #a9bacb;
+  font-size: 14px;
+  line-height: 1.55;
+  text-align: center;
+}
+
+.authMode {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  margin-bottom: 23px;
+  padding: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 14px;
+  background: rgba(2, 8, 23, 0.48);
+}
+
+.authMode button {
+  min-height: 42px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  color: #91a4b8;
+  background: transparent;
+  font-size: 13px;
+  font-weight: 700;
+  transition:
+    color 180ms ease,
+    background 180ms ease,
+    border-color 180ms ease,
+    box-shadow 180ms ease;
+}
+
+.authMode button:hover:not(:disabled) {
+  color: #e0f2fe;
+}
+
+.authMode button.active {
+  border-color: rgba(125, 211, 252, 0.15);
+  color: #e0f2fe;
+  background: linear-gradient(135deg, rgba(14, 116, 144, 0.42), rgba(3, 105, 161, 0.3));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+.authMode button:disabled {
+  cursor: wait;
+}
+
+.authForm {
+  display: grid;
+  gap: 17px;
+}
+
+.authField {
+  display: grid;
+  gap: 8px;
+}
+
+.authField label {
+  color: #d7e3ef;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.authField input {
+  min-height: 48px;
+  padding: 11px 14px;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 12px;
+  color: #f8fafc;
+  background: rgba(2, 8, 23, 0.43);
+  font-size: 14px;
+  font-weight: 500;
+  transition:
+    border-color 160ms ease,
+    background 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.authField input::placeholder {
+  color: #64748b;
+}
+
+.authField input:focus {
+  border-color: rgba(56, 189, 248, 0.56);
+  background: rgba(2, 8, 23, 0.62);
+  box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.1);
+}
+
+.authPassword {
+  position: relative;
+}
+
+.authPassword input {
+  padding-right: 50px;
+}
+
+.authPasswordToggle {
+  position: absolute;
+  top: 50%;
+  right: 7px;
+  display: grid;
+  width: 36px;
+  height: 36px;
+  place-items: center;
+  padding: 0;
+  transform: translateY(-50%);
+  border: 0;
+  border-radius: 9px;
+  color: #8ba2b8;
+  background: transparent;
+}
+
+.authPasswordToggle:hover {
+  color: #e0f2fe;
+  background: rgba(125, 211, 252, 0.08);
+}
+
+.authPasswordToggle svg {
+  width: 19px;
+  height: 19px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.7;
+}
+
+.authMessage {
+  margin: -2px 0 0;
+  padding: 11px 12px;
+  border: 1px solid rgba(125, 211, 252, 0.14);
+  border-radius: 11px;
+  color: #dbeafe;
+  background: rgba(14, 116, 144, 0.12);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.authMessage.isError {
+  border-color: rgba(251, 113, 133, 0.2);
+  color: #fecdd3;
+  background: rgba(159, 18, 57, 0.14);
+}
+
+.authMessage.isSuccess {
+  color: #bae6fd;
+}
+
+.authSubmit {
+  display: flex;
+  min-height: 49px;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 2px;
+  border: 1px solid rgba(125, 211, 252, 0.24);
+  border-radius: 12px;
+  color: #f0f9ff;
+  background: linear-gradient(125deg, #0369a1, #075985 62%, #0e7490);
+  box-shadow:
+    0 10px 24px rgba(2, 132, 199, 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.12);
+  font-size: 14px;
+  font-weight: 750;
+  transition:
+    filter 160ms ease,
+    transform 160ms ease,
+    opacity 160ms ease;
+}
+
+.authSubmit:hover:not(:disabled) {
+  filter: brightness(1.12);
+  transform: translateY(-1px);
+}
+
+.authSubmit:disabled {
+  cursor: wait;
+  opacity: 0.78;
+}
+
+.authSpinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid rgba(224, 242, 254, 0.35);
+  border-top-color: #f0f9ff;
+  border-radius: 50%;
+  animation: authSpin 700ms linear infinite;
+}
+
+.authFootnote {
+  margin-top: 22px;
+  color: #64748b;
+  font-size: 11px;
+  text-align: center;
+}
+
+@keyframes authSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (max-width: 480px) {
+  .authScreen {
+    padding: 18px;
+  }
+
+  .authCard {
+    padding: 26px 21px;
+    border-radius: 23px;
+  }
+}
+
+.notificationCenterOverlay {
+  z-index: 85;
+}
+
+.notificationCenterModal {
+  width: min(100%, 560px);
+  max-height: 85vh;
+  max-height: 85dvh;
+  padding: 22px;
+  border-color: rgba(186, 230, 253, 0.18);
+  border-radius: 22px;
+  background:
+    radial-gradient(ellipse at 50% 0%, rgba(56, 189, 248, 0.11), transparent 58%),
+    rgba(8, 19, 36, 0.96);
+}
+
+.notificationCenterHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.notificationCenterHeader h2 {
+  color: #f0f9ff;
+  font-size: 19px;
+  font-weight: 750;
+}
+
+.notificationCenterHeader p {
+  margin-top: 4px;
+  color: #94a3b8;
+  font-size: 12px;
+}
+
+.notificationCenterHeader .iconButton {
+  width: 34px;
+  height: 34px;
+  flex-basis: 34px;
+  border-radius: 10px;
+  font-size: 20px;
+  line-height: 1;
+}
+
+.notificationBadge {
+  position: absolute;
+  top: -3px;
+  right: -3px;
+  display: grid;
+  min-width: 17px;
+  height: 17px;
+  place-items: center;
+  padding: 0 4px;
+  border: 1px solid rgba(8, 19, 36, 0.9);
+  border-radius: 999px;
+  color: #fff;
+  background: #e11d48;
+  font-size: 9px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.notificationCenterTabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 5px;
+  margin-bottom: 16px;
+  padding: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 13px;
+  background: rgba(2, 8, 23, 0.5);
+}
+
+.notificationCenterTabs button {
+  display: flex;
+  min-height: 38px;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 7px 8px;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  color: #94a3b8;
+  background: transparent;
+  font-size: 12px;
+  font-weight: 650;
+  transition: background 160ms ease, color 160ms ease;
+}
+
+.notificationCenterTabs button.active {
+  border-color: rgba(125, 211, 252, 0.16);
+  color: #e0f2fe;
+  background: rgba(14, 116, 144, 0.28);
+}
+
+.notificationTabCount {
+  display: grid;
+  min-width: 18px;
+  height: 18px;
+  place-items: center;
+  padding: 0 4px;
+  border-radius: 99px;
+  color: #e0f2fe;
+  background: rgba(14, 165, 233, 0.2);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+.notificationList {
+  display: grid;
+  gap: 9px;
+}
+
+.notificationItem {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 13px;
+  border: 1px solid rgba(125, 211, 252, 0.13);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.notificationItem-limit {
+  border-color: rgba(251, 191, 36, 0.2);
+  background: rgba(120, 53, 15, 0.13);
+}
+
+.notificationItemHeading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 4px 10px;
+}
+
+.notificationItemHeading strong {
+  color: #e0f2fe;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.notificationItemHeading span {
+  color: #7dd3fc;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.notificationItemContent p {
+  margin-top: 5px;
+  color: #a9bacb;
+  font-size: 12px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.notificationReadButton {
+  min-height: 32px;
+  padding: 6px 10px;
+  border: 1px solid rgba(125, 211, 252, 0.16);
+  border-radius: 9px;
+  color: #bae6fd;
+  background: rgba(56, 189, 248, 0.07);
+  font-size: 11px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.notificationReadButton:hover {
+  border-color: rgba(125, 211, 252, 0.34);
+  background: rgba(56, 189, 248, 0.14);
+}
+
+.notificationEmptyState {
+  display: grid;
+  min-height: 150px;
+  place-content: center;
+  justify-items: center;
+  gap: 12px;
+  border: 1px dashed rgba(125, 211, 252, 0.16);
+  border-radius: 15px;
+  color: #7dd3fc;
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.notificationEmptyState p {
+  color: #a9bacb;
+  font-size: 13px;
+}
+
+.notificationSettingsForm {
+  display: grid;
+  gap: 13px;
+}
+
+.notificationSettingsIntro {
+  margin: 0 0 2px;
+  color: #94a3b8;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.notificationDayField {
+  display: flex;
+  min-height: 50px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 11px 8px 13px;
+  border: 1px solid rgba(148, 163, 184, 0.15);
+  border-radius: 12px;
+  background: rgba(2, 8, 23, 0.3);
+}
+
+.notificationDayField span {
+  color: #dbeafe;
+  font-size: 12px;
+}
+
+.notificationDayField input {
+  width: 94px;
+  min-height: 34px;
+  padding: 6px 9px;
+  border: 1px solid rgba(125, 211, 252, 0.16);
+  border-radius: 9px;
+  outline: none;
+  color: #f0f9ff;
+  background: rgba(2, 8, 23, 0.56);
+  font-size: 12px;
+  text-align: center;
+}
+
+.notificationDayField input:focus {
+  border-color: rgba(125, 211, 252, 0.52);
+  box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.09);
+}
+
+.notificationToggle {
+  position: relative;
+  display: flex;
+  min-height: 58px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 13px;
+  border: 1px solid rgba(148, 163, 184, 0.12);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.025);
+  cursor: pointer;
+}
+
+.notificationToggle > span:first-child {
+  display: grid;
+  gap: 3px;
+}
+
+.notificationToggle strong {
+  color: #dbeafe;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.notificationToggle small {
+  color: #718096;
+  font-size: 10px;
+}
+
+.notificationToggle input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+}
+
+.notificationToggleTrack {
+  width: 38px;
+  height: 22px;
+  flex: 0 0 38px;
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  border-radius: 99px;
+  background: rgba(15, 23, 42, 0.85);
+  transition: background 160ms ease, border-color 160ms ease;
+}
+
+.notificationToggleTrack::after {
+  display: block;
+  width: 16px;
+  height: 16px;
+  margin: 2px;
+  border-radius: 50%;
+  background: #94a3b8;
+  content: "";
+  transition: transform 160ms ease, background 160ms ease;
+}
+
+.notificationToggle input:checked + .notificationToggleTrack {
+  border-color: rgba(56, 189, 248, 0.55);
+  background: rgba(2, 132, 199, 0.4);
+}
+
+.notificationToggle input:checked + .notificationToggleTrack::after {
+  background: #bae6fd;
+  transform: translateX(16px);
+}
+
+.notificationToggle input:focus-visible + .notificationToggleTrack {
+  outline: 2px solid #7dd3fc;
+  outline-offset: 3px;
+}
+
+.notificationSettingsError {
+  color: #fda4af;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.notificationSaveButton {
+  min-height: 42px;
+  border-color: rgba(125, 211, 252, 0.22);
+  color: #f0f9ff;
+  background: linear-gradient(120deg, #0369a1, #0e7490);
+}
+
+@media (max-width: 560px) {
+  .notificationCenterModal {
+    padding: 18px 15px;
+    border-radius: 19px;
+  }
+
+  .notificationItem {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .notificationReadButton {
+    justify-self: end;
   }
 }
