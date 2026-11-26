@@ -57,6 +57,19 @@ body {
   overscroll-behavior: none;
 }
 
+html,
+body,
+* {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+html::-webkit-scrollbar,
+body::-webkit-scrollbar,
+*::-webkit-scrollbar {
+  display: none;
+}
+
 body {
   margin: 0;
   background-color: #060d18;
@@ -1351,7 +1364,8 @@ body {
 
 @media (max-width: 768px) {
   .page {
-    padding: 12px 12px calc(104px + env(safe-area-inset-bottom));
+    padding: calc(12px + env(safe-area-inset-top)) 12px
+      calc(104px + env(safe-area-inset-bottom));
   }
 
   .sectionStack {

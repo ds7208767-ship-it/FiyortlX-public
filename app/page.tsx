@@ -1241,14 +1241,14 @@ export default function Home() {
           fill
           sizes="100vw"
           preload
-          className="object-cover blur-xl"
+          className="object-cover blur-md md:blur-xl"
         />
-        <div className="absolute inset-0 bg-[#060d18]/55" />
+        <div className="absolute inset-0 bg-[#060d18]/35 md:bg-[#060d18]/55" />
       </div>
       {authReady && !user ? <AuthScreen /> : null}
       {authReady && user ? (
     <main className="page">
-      <div className="shell">
+      <div className="shell pb-28 md:pb-0">
         <header className="hero">
           <div className="brand">
             <div className="logoLine">
