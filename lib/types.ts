@@ -20,6 +20,8 @@ export type Transaction = {
   type: TransactionType;
   account: AccountKey;
   toAccount?: AccountKey;
+  fixedIncomeId?: string;
+  generatedMonth?: string;
   category: string;
   amount: number;
   note: string;
@@ -27,6 +29,22 @@ export type Transaction = {
   isConfirmed: boolean;
   source?: "manual" | "debtPayment";
   debtId?: string;
+};
+
+export type FixedIncome = {
+  id: string;
+  type: "income" | "expense";
+  title: string;
+  amount: number;
+  account: AccountKey;
+  dayOfMonth: number;
+  lastGeneratedMonth: string | null;
+  createdAt: string;
+};
+
+export type UserProfile = {
+  avatarUrl: string | null;
+  plan: "standard" | "pro";
 };
 
 export type Debt = {

@@ -973,36 +973,6 @@ button {
           margin-bottom: 18px;
         }
 
-        .analysisFilters {
-          width: min(620px, 100%);
-          display: flex;
-          align-items: end;
-          justify-content: flex-end;
-          flex-wrap: wrap;
-          gap: 10px;
-        }
-
-        .analysisPeriodField {
-          width: min(220px, 100%);
-          display: grid;
-          gap: 6px;
-        }
-
-        .customDateFields {
-          display: grid;
-          grid-template-columns: repeat(2, minmax(0, 1fr));
-          gap: 10px;
-        }
-
-        .analysisFilters .field {
-          gap: 6px;
-        }
-
-        .analysisFilters input,
-        .analysisFilters select {
-          min-height: 44px;
-        }
-
         .analysisChoice {
           min-height: 198px;
           border: 1px solid var(--glass-border);
@@ -1356,6 +1326,120 @@ button {
             padding: 14px;
           }
         }
+
+        .quickCategoryChips {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 7px;
+          margin-top: 9px;
+        }
+
+        .quickCategoryChip {
+          flex: 0 0 auto;
+          min-height: 32px;
+          padding: 6px 11px;
+          border: 1px solid rgba(255, 255, 255, 0.13);
+          border-radius: 999px;
+          color: #cbd5e1;
+          background: rgba(15, 30, 54, 0.62);
+          backdrop-filter: blur(10px);
+          -webkit-backdrop-filter: blur(10px);
+          font-size: 12px;
+          font-weight: 750;
+          transition:
+            border-color 160ms ease,
+            background 160ms ease,
+            color 160ms ease,
+            box-shadow 160ms ease;
+        }
+
+        .quickCategoryChip:hover,
+        .quickCategoryChip.active {
+          border-color: rgba(125, 211, 252, 0.52);
+          color: #e0f2fe;
+          background: rgba(56, 189, 248, 0.17);
+          box-shadow:
+            0 0 0 1px rgba(125, 211, 252, 0.1) inset,
+            0 0 16px rgba(56, 189, 248, 0.12);
+        }
+
+        .monthControl {
+          display: flex;
+          width: fit-content;
+          max-width: 100%;
+          min-height: 46px;
+          flex: 0 0 auto;
+          align-items: center;
+          gap: 4px;
+          padding: 5px;
+          border: 1px solid rgba(255, 255, 255, 0.15);
+          border-radius: 999px;
+          background: rgba(11, 22, 40, 0.72);
+        }
+
+        .monthArrow,
+        .monthAllButton {
+          display: grid;
+          min-width: 34px;
+          height: 34px;
+          place-items: center;
+          border: 1px solid transparent;
+          border-radius: 999px;
+          color: #bae6fd;
+          background: transparent;
+          font-size: 22px;
+          font-weight: 700;
+          line-height: 1;
+        }
+
+        .monthArrow:hover {
+          border-color: rgba(125, 211, 252, 0.25);
+          background: rgba(56, 189, 248, 0.12);
+        }
+
+        .monthLabel {
+          min-width: 122px;
+          padding: 0 6px;
+          color: #f0f9ff;
+          font-size: 14px;
+          font-weight: 850;
+          text-align: center;
+          text-transform: capitalize;
+          white-space: nowrap;
+        }
+
+        .monthAllButton {
+          min-width: 52px;
+          padding: 0 10px;
+          color: #cbd5e1;
+          font-size: 12px;
+          font-weight: 800;
+        }
+
+        .monthAllButton.active {
+          border-color: rgba(125, 211, 252, 0.42);
+          color: #e0f2fe;
+          background: rgba(56, 189, 248, 0.16);
+          box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+        }
+
+        @media (max-width: 560px) {
+          .monthControl {
+            width: 100%;
+            justify-content: space-between;
+          }
+
+          .monthLabel {
+            min-width: 0;
+            flex: 1 1 auto;
+          }
+
+          .quickCategoryChip {
+            min-height: 30px;
+            padding: 5px 9px;
+            font-size: 11px;
+          }
+        }
 html,
 body {
   background-color: #060d18;
@@ -1479,14 +1563,6 @@ body {
 
   .sectionHeader {
     margin-bottom: 12px;
-  }
-
-  .sectionHeader:has(.analysisFilters) {
-    display: grid;
-    grid-template-columns: 1fr;
-    align-items: end;
-    gap: 10px;
-    margin-bottom: 14px;
   }
 
   .grid.cards.analysisSummaryGrid {
@@ -1646,56 +1722,6 @@ body {
     padding-left: 16px;
     font-size: 13px;
     line-height: 1.4;
-  }
-
-  .analysisFilters {
-    width: 100%;
-    display: grid;
-    grid-template-columns: 1fr;
-    justify-content: stretch;
-    gap: 8px;
-  }
-
-  .analysisPeriodField {
-    width: 100%;
-    gap: 4px;
-  }
-
-  .analysisPeriodField label {
-    font-size: 11px;
-  }
-
-  .analysisPeriodField select {
-    font-size: 12px;
-  }
-
-  .analysisFilters input,
-  .analysisFilters select {
-    min-height: 38px;
-  }
-
-  .customDateFields {
-    grid-template-columns: 1fr;
-    gap: 8px;
-  }
-
-  .sectionStack:has(.analysisPeriodField) > .grid.cards {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 10px;
-  }
-
-  .sectionStack:has(.analysisPeriodField) > .grid.cards .card {
-    min-width: 0;
-    padding: 14px;
-  }
-
-  .sectionStack:has(.analysisPeriodField) > .grid.cards .cardLabel {
-    font-size: 11px;
-  }
-
-  .sectionStack:has(.analysisPeriodField) > .grid.cards .cardValue {
-    margin-top: 6px;
-    font-size: clamp(20px, 6vw, 26px);
   }
 
   .analysisPicker {
@@ -2050,21 +2076,776 @@ body {
 
   .hero {
     position: relative;
-    padding-right: 58px;
+    padding-right: 104px;
   }
 
-  .logoutButton {
+  .heroActions {
     position: absolute;
     top: 14px;
     right: 14px;
-    width: 38px;
-    min-width: 38px;
-    height: 38px;
-    min-height: 38px;
-    padding: 0 !important;
+    gap: 7px;
+  }
+}
+
+.heroActions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 9px;
+}
+
+.iconButton,
+.profileAvatar {
+  display: grid;
+  width: 42px;
+  height: 42px;
+  flex: 0 0 42px;
+  place-items: center;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 50%;
+  color: #e0f2fe;
+  background: rgba(15, 30, 54, 0.78);
+  box-shadow: var(--glass-shadow);
+}
+
+.iconButton:hover,
+.profileAvatar:hover {
+  border-color: rgba(125, 211, 252, 0.55);
+  background: rgba(56, 189, 248, 0.14);
+}
+
+.profileAvatar {
+  overflow: hidden;
+  border-color: rgba(125, 211, 252, 0.4);
+  color: #082f49;
+  background: linear-gradient(145deg, #bae6fd, #38bdf8);
+  font-size: 17px;
+  font-weight: 900;
+}
+
+.profileAvatar img,
+.accountAvatarPreview img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.accountOverlay {
+  position: fixed;
+  z-index: 80;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+  background: rgba(2, 8, 23, 0.72);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+.accountMenu {
+  width: min(100%, 520px);
+  max-height: min(90dvh, 760px);
+  overflow: auto;
+  padding: 22px;
+  border: 1px solid rgba(255, 255, 255, 0.17);
+  border-radius: 24px;
+  background: rgba(11, 22, 40, 0.94);
+}
+
+.accountMenuHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.accountMenuHeader h2,
+.fixedIncomePanel h2 {
+  color: #fff;
+  font-size: 20px;
+  font-weight: 850;
+}
+
+.accountMenuHeader p,
+.fixedIncomePanel .sectionHeader p {
+  margin-top: 5px;
+  color: #94a3b8;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.accountProfile {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 16px;
+  border: 1px solid var(--frosted-border);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.accountAvatarPreview {
+  display: grid;
+  width: 76px;
+  height: 76px;
+  flex: 0 0 76px;
+  overflow: hidden;
+  place-items: center;
+  border: 1px solid rgba(125, 211, 252, 0.4);
+  border-radius: 50%;
+  color: #082f49;
+  background: linear-gradient(145deg, #bae6fd, #38bdf8);
+  font-size: 28px;
+  font-weight: 900;
+}
+
+.accountAvatarActions {
+  display: grid;
+  justify-items: start;
+  gap: 10px;
+}
+
+.accountAvatarActions strong {
+  color: #e2e8f0;
+  font-size: 14px;
+}
+
+.accountDetail {
+  display: grid;
+  gap: 6px;
+  margin-top: 14px;
+  padding: 14px 16px;
+  border: 1px solid var(--frosted-border);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.accountDetail > span {
+  color: #94a3b8;
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.accountDetail > strong {
+  overflow-wrap: anywhere;
+  color: #f8fafc;
+  font-size: 14px;
+}
+
+.planValue {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.planBadge {
+  padding: 6px 10px;
+  border: 1px solid rgba(125, 211, 252, 0.32);
+  border-radius: 999px;
+  color: #bae6fd;
+  background: rgba(56, 189, 248, 0.1);
+  font-size: 12px;
+}
+
+.accountSignOut {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  margin-top: 18px;
+}
+
+.accountError,
+.fixedIncomeError {
+  margin-top: 10px;
+  color: #fda4af;
+  font-size: 13px;
+}
+
+.visuallyHidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  clip-path: inset(50%);
+}
+
+.fixedIncomePanel {
+  padding: 18px;
+  border-radius: 22px;
+}
+
+.fixedIncomePanel .sectionHeader {
+  margin-bottom: 14px;
+}
+
+.fixedIncomeForm {
+  display: grid;
+  grid-template-columns: minmax(150px, 1.3fr) minmax(120px, 1fr) minmax(130px, 1fr) minmax(90px, 0.7fr) auto;
+  align-items: end;
+  gap: 10px;
+}
+
+.fixedIncomeAddButton {
+  min-height: 44px;
+  white-space: nowrap;
+}
+
+.fixedIncomeList {
+  display: grid;
+  gap: 9px;
+  margin-top: 16px;
+}
+
+.fixedIncomeItem {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--frosted-border);
+  border-radius: 15px;
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.fixedIncomeItem > div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.fixedIncomeItem > div strong {
+  overflow: hidden;
+  color: #f8fafc;
+  text-overflow: ellipsis;
+}
+
+.fixedIncomeItem > div span {
+  color: #94a3b8;
+  font-size: 12px;
+}
+
+.fixedIncomeAmount {
+  color: #bae6fd;
+  font-variant-numeric: tabular-nums;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
+}
+
+@media (max-width: 980px) {
+  .fixedIncomeForm {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .logoutLabel {
-    display: none;
+  .fixedIncomeAddButton {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 560px) {
+  .heroActions {
+    top: 12px;
+    right: 12px;
+  }
+
+  .heroActions .iconButton,
+  .heroActions .profileAvatar {
+    width: 36px;
+    height: 36px;
+    flex-basis: 36px;
+  }
+
+  .accountMenu {
+    padding: 17px;
+    border-radius: 20px;
+  }
+
+  .fixedIncomePanel {
+    padding: 14px;
+  }
+
+  .fixedIncomeForm {
+    grid-template-columns: 1fr;
+  }
+
+  .fixedIncomeAddButton {
+    grid-column: auto;
+  }
+
+  .fixedIncomeItem {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .fixedIncomeItem .btn {
+    grid-column: 1 / -1;
+    justify-self: end;
+  }
+}
+
+.transactionTab {
+  gap: 24px;
+}
+
+.transactionFormGrid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  align-items: start;
+  gap: 12px;
+}
+
+.transactionFormGrid .transactionTypeField {
+  grid-column: 1;
+}
+
+.transactionFormGrid .transactionAccountsField {
+  grid-column: 2;
+}
+
+.transactionFormGrid .transactionAmountField {
+  grid-column: 3;
+}
+
+.transactionFormGrid .transactionDateField {
+  grid-column: 4;
+}
+
+.transactionFormGrid .transactionCategoryField,
+.transactionFormGrid .transactionConfirmationField,
+.transactionFormGrid .transactionNoteField {
+  grid-column: 1 / -1;
+}
+
+.transactionFormGrid input:not([type="checkbox"]),
+.transactionFormGrid select {
+  box-sizing: border-box;
+  width: 100%;
+  height: 44px;
+  min-height: 44px;
+}
+
+.transactionAccountPair {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+}
+
+.transactionAccountPair.hasTarget {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.transactionNoteField textarea {
+  min-height: 76px;
+}
+
+.transactionConfirmationField {
+  display: grid;
+  gap: 8px;
+}
+
+.analysisToolbar,
+.historyToolbar {
+  align-items: center;
+}
+
+.analysisToolbar {
+  margin-bottom: 0;
+}
+
+.analysisToolbar .monthControl,
+.historyToolbar .monthControl {
+  margin-left: auto;
+}
+
+.grid.cards.analysisSummaryGrid.openingSummaryGrid {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.grid.cards.analysisSummaryGrid .card {
+  min-height: 0;
+  padding: 14px;
+}
+
+.openingSummaryGrid .cardValue {
+  min-height: 0;
+  margin-top: 8px;
+  font-size: clamp(17px, 1.8vw, 25px);
+  line-height: 1.15;
+}
+
+.openingSummaryGrid .metricCardHeading {
+  min-height: 0;
+}
+
+.openingSummaryGrid .readonlyTotal {
+  min-height: 0;
+}
+
+.analysisSummaryGrid .metricCard {
+  gap: 8px;
+}
+
+.analysisSummaryGrid .metricCardHeading {
+  min-height: 36px;
+}
+
+.analysisSummaryGrid .metricCard .cardValue {
+  font-size: clamp(16px, 2.2vw, 28px);
+  line-height: 1.15;
+}
+
+@media (max-width: 980px) {
+  .transactionFormGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .transactionFormGrid .transactionTypeField,
+  .transactionFormGrid .transactionAmountField {
+    grid-column: 1;
+  }
+
+  .transactionFormGrid .transactionAccountsField,
+  .transactionFormGrid .transactionDateField {
+    grid-column: 2;
+  }
+
+  .transactionAccountPair.hasTarget {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .grid.cards.analysisSummaryGrid.openingSummaryGrid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .analysisToolbar,
+  .historyToolbar {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    justify-items: stretch;
+    gap: 12px;
+  }
+
+  .analysisToolbar .monthControl,
+  .historyToolbar .monthControl {
+    width: 100%;
+    margin-left: 0;
+    justify-content: space-between;
+  }
+}
+
+@media (max-width: 768px) {
+  .grid.cards.analysisSummaryGrid.openingSummaryGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+  }
+}
+
+.fixedFlowTypeSwitch {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.brandWithLimit {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 18px;
+}
+
+.brandWithLimit .brand {
+  min-width: 0;
+  flex: 0 1 290px;
+}
+
+.monthlyLimitSetup {
+  display: inline-flex;
+  min-height: 38px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border: 1px solid rgba(125, 211, 252, 0.28);
+  border-radius: 999px;
+  color: #bae6fd;
+  background: rgba(15, 30, 54, 0.72);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  font-size: 12px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.monthlyLimitSetup:hover,
+.monthlyLimitSettings:hover {
+  border-color: rgba(186, 230, 253, 0.62);
+  background: rgba(56, 189, 248, 0.16);
+}
+
+.monthlyLimitWidget {
+  display: grid;
+  min-width: 220px;
+  max-width: 310px;
+  flex: 1 1 270px;
+  gap: 4px;
+  padding: 8px 10px 7px;
+  border: 1px solid rgba(125, 211, 252, 0.23);
+  border-radius: 16px;
+  background: rgba(8, 24, 43, 0.72);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.07);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+.monthlyLimitTopline {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.monthlyLimitReadout {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.monthlyLimitReadout span {
+  overflow: hidden;
+  color: #a5c9db;
+  font-size: 10px;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.monthlyLimitReadout strong {
+  color: #f0f9ff;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 850;
+  white-space: nowrap;
+}
+
+.monthlyLimitSettings {
+  display: grid;
+  width: 26px;
+  height: 26px;
+  flex: 0 0 26px;
+  place-items: center;
+  border: 1px solid rgba(255, 255, 255, 0.13);
+  border-radius: 50%;
+  color: #bae6fd;
+  background: rgba(255, 255, 255, 0.055);
+}
+
+.monthlyLimitTrack {
+  position: relative;
+  height: 8px;
+  margin: 3px 1px;
+  border: 1px solid rgba(255,  255, 255, 0.1);
+  border-radius: 999px;
+  background: rgba(8, 47, 73, 0.74);
+}
+
+.monthlyLimitFill {
+  height: 100%;
+  border-radius: inherit;
+  transition:
+    width 320ms ease,
+    background 320ms ease,
+    box-shadow 320ms ease;
+}
+
+.monthlyLimitFill.tier-water {
+  background: linear-gradient(90deg, #0284c7, #22d3ee);
+  box-shadow: 0 0 9px rgba(34, 211, 238, 0.34);
+}
+
+.monthlyLimitFill.tier-deep {
+  background: linear-gradient(90deg, #1e3a8a, #0369a1 58%, #67e8f9);
+  box-shadow: 0 0 10px rgba(56, 189, 248, 0.36);
+}
+
+.monthlyLimitFill.tier-freezing {
+  background: linear-gradient(90deg, #075985, #a5f3fc 72%, #fff);
+  box-shadow: 0 0 10px rgba(207, 250, 254, 0.42);
+}
+
+.monthlyLimitFill.tier-frozen {
+  background: linear-gradient(90deg, #f8fdff, #bae6fd 58%, #fff);
+  box-shadow: 0 0 16px rgba(186, 230, 253, 0.65);
+}
+
+.monthlyLimitTrack.tier-freezing {
+  box-shadow: 0 0 0 1px rgba(165, 243, 252, 0.42);
+}
+
+.monthlyLimitTrack.tier-frozen {
+  border-color: rgba(224, 242, 254, 0.88);
+  background: rgba(224, 242, 254, 0.17);
+  box-shadow: 0 0 16px rgba(186, 230, 253, 0.65);
+}
+
+.monthlyLimitIcicles {
+  position: absolute;
+  z-index: 2;
+  left: 7px;
+  width: calc(100% - 14px);
+  height: 12px;
+  overflow: visible;
+  fill: rgba(224, 242, 254, 0.92);
+  stroke: rgba(255, 255, 255, 0.72);
+  stroke-width: 0.45;
+  filter: drop-shadow(0 0 4px rgba(186, 230, 253, 0.7));
+  pointer-events: none;
+}
+
+.monthlyLimitIcicles.top {
+  top: -7px;
+}
+
+.monthlyLimitIcicles.bottom {
+  bottom: -7px;
+  transform: rotate(180deg);
+}
+
+.monthlyLimitFooter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: #9fb6c8;
+  font-size: 9px;
+  font-weight: 750;
+  line-height: 1.1;
+}
+
+.tier-freezing .monthlyLimitFooter,
+.tier-frozen .monthlyLimitFooter {
+  color: #d9f4ff;
+}
+
+.monthlyLimitModal {
+  max-width: 500px;
+}
+
+.monthlyLimitTutorial {
+  display: grid;
+  gap: 10px;
+  margin: 0 0 18px;
+  padding: 15px 16px 15px 38px;
+  border: 1px solid rgba(125, 211, 252, 0.18);
+  border-radius: 17px;
+  color: #d3e6f4;
+  background: rgba(56, 189, 248, 0.055);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.monthlyLimitTutorial li::marker {
+  color: #7dd3fc;
+  font-weight: 900;
+}
+
+.monthlyLimitForm {
+  display: grid;
+  gap: 13px;
+}
+
+.monthlyLimitError {
+  color: #fda4af;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.monthlyLimitModalActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 9px;
+}
+
+@media (max-width: 980px) {
+  .brandWithLimit {
+    width: 100%;
+  }
+}
+
+@media (max-width: 768px) {
+  .brandWithLimit {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .brandWithLimit .brand {
+    flex-basis: auto;
+  }
+
+  .monthlyLimitSetup,
+  .monthlyLimitWidget {
+    width: min(320px, calc(100vw - 56px));
+    max-width: none;
+  }
+
+  .monthlyLimitWidget {
+    min-width: 0;
+    flex: 0 1 auto;
+  }
+}
+
+@media (max-width: 560px) {
+  .monthlyLimitModal {
+    padding: 17px;
+    border-radius: 20px;
+  }
+
+  .monthlyLimitModalActions {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 1100px) {
+  .hero {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .brandWithLimit {
+    grid-column: 1 / -1;
+  }
+
+  .heroStats {
+    grid-column: 1;
+    min-width: 0;
+  }
+
+  .heroActions {
+    grid-column: 2;
+    justify-self: end;
+  }
+}
+
+@media (max-width: 768px) {
+  .hero {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .heroStats {
+    grid-column: 1 / -1;
   }
 }
