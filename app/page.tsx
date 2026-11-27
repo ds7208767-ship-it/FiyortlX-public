@@ -13,6 +13,7 @@ import {
 import type { User } from "@supabase/supabase-js";
 import { supabase } from "../lib/supabase";
 import {
+  cleanNearOrExpiredLocalNotifications,
   requestLocalNotificationPermission,
   synchronizeLocalNotifications,
   type NativeReminder,
@@ -86,7 +87,7 @@ type DashboardReminder = NativeReminder & {
   id: string;
   dateKey: string;
   dateLabel: string;
-  kind: "fixed" | "card" | "limit";
+  kind: "fixed" | "card" | "limit" | "balance";
   amount?: number;
 };
 
@@ -133,6 +134,88 @@ function localDateKey(value: Date) {
   return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, "0")}-${String(value.getDate()).padStart(2, "0")}`;
 }
 
+function isUserXL(profile: UserProfile | null, now = new Date()) {
+  if (!profile || profile.plan !== "XL") return false;
+  if (profile.planSource === "manual" || profile.planSource === "google_play") return true;
+  return profile.planSource === "trial" && Boolean(
+    profile.planExpiresAt && new Date(profile.planExpiresAt).getTime() > now.getTime(),
+  );
+}
+
+function getXLMonthlyPrice(date = new Date()) {
+  return localDateKey(date) <= "2026-12-30" ? 44 : 66;
+}
+
+function getTrialExpiresAt(createdAt: string) {
+  const registeredAt = new Date(createdAt);
+  if (!Number.isFinite(registeredAt.getTime())) return null;
+  return new Date(registeredAt.getTime() + 30 * 24 * 60 * 60 * 1000).toISOString();
+}
+
+function mapUserProfile(
+  row: {
+    avatar_url?: string | null;
+    plan?: unknown;
+    plan_source?: unknown;
+    plan_expires_at?: string | null;
+  },
+): UserProfile {
+  const legacyPro = String(row.plan ?? "").toLowerCase() === "pro";
+  const plan = String(row.plan ?? "").toUpperCase() === "XL" || legacyPro ? "XL" : "L";
+  const source = row.plan_source;
+  const planSource: PlanSource =
+    source === "google_play" || source === "manual" || source === "trial"
+      ? source
+      : legacyPro
+        ? "manual"
+        : "trial";
+
+  return {
+    avatarUrl: row.avatar_url ? String(row.avatar_url) : null,
+    plan,
+    planSource,
+    planExpiresAt: row.plan_expires_at ? String(row.plan_expires_at) : null,
+  };
+}
+
+type DatabaseTransactionRow = {
+  id: string | number;
+  date: string;
+  type: string;
+  account: string;
+  to_account?: string | null;
+  fixed_income_id?: string | null;
+  generated_month?: string | null;
+  category: string;
+  amount: string | number;
+  note?: string | null;
+  created_at: string;
+  is_confirmed?: boolean | null;
+  is_system_xl?: boolean | null;
+  source?: string | null;
+  debt_id?: string | null;
+};
+
+function mapDatabaseTransaction(row: DatabaseTransactionRow): Transaction {
+  return {
+    id: String(row.id),
+    date: String(row.date),
+    type: row.type as TransactionType,
+    account: row.account as AccountKey,
+    toAccount: row.to_account ? (row.to_account as AccountKey) : undefined,
+    fixedIncomeId: row.fixed_income_id ? String(row.fixed_income_id) : undefined,
+    generatedMonth: row.generated_month ? String(row.generated_month) : undefined,
+    category: String(row.category),
+    amount: Number(row.amount),
+    note: String(row.note ?? ""),
+    createdAt: String(row.created_at),
+    isConfirmed: row.is_confirmed == null ? true : Boolean(row.is_confirmed),
+    isSystemXL: Boolean(row.is_system_xl),
+    source: (row.source as "manual" | "debtPayment") ?? "manual",
+    debtId: row.debt_id ? String(row.debt_id) : undefined,
+  };
+}
+
 function monthlyOccurrences(day: number, startDate: Date, daysAhead: number) {
   const occurrences: Date[] = [];
   for (let offset = 0; offset <= daysAhead; offset += 1) {
@@ -175,6 +258,41 @@ const quickExpenseCategories = [
 const quickIncomeCategories = ["Maaş", "Prim", "Ek Gelir", "İade", "Satış"];
 
 type HistoryFilter = "all" | "pending" | "income" | "expense" | "transfer";
+type AnalysisDateFilter =
+  | "month"
+  | "all"
+  | "past-2"
+  | "past-3"
+  | "past-6"
+  | "future-2"
+  | "future-3"
+  | "future-6"
+  | "custom";
+
+type PlanSource = "trial" | "google_play" | "manual";
+
+const planComparisonRows: {
+  feature: string;
+  free: string;
+  xl: string;
+  comingSoon?: boolean;
+}[] = [
+  { feature: "Temel Hesaplar & Bakiye", free: "Açık", xl: "Açık" },
+  { feature: "Aylık İşlem Hakkı", free: "Ayda 3 işlem", xl: "Sınırsız" },
+  { feature: "Kredi Kartı Taksit Takibi", free: "Sadece Peşin", xl: "2–12 Taksit" },
+  { feature: "Analiz Tarih Aralığı", free: "Sadece Bu Ay", xl: "Geçmiş, Gelecek & Özel Aralık" },
+  { feature: "AI Finans Analizi", free: "—", xl: "Yakında", comingSoon: true },
+  { feature: "Birikim Hedefleri (Kumbara)", free: "—", xl: "Yakında", comingSoon: true },
+  { feature: "CSV Dışa Aktarma & Hesap Silme", free: "Açık", xl: "Açık" },
+];
+
+type SavingsGoal = {
+  id: string;
+  title: string;
+  targetAmount: number;
+  currentAmount: number;
+  createdAt: string;
+};
 
 const incomeCategories = [
   "Maaş",
@@ -352,6 +470,23 @@ function endOfMonth(monthValue: string) {
   return dateInputFromDate(new Date(year, month, 0));
 }
 
+function addMonthsToDate(value: string, offset: number) {
+  const [year, month, day] = value.split("-").map(Number);
+  const targetMonth = new Date(year, month - 1 + offset, 1);
+  const lastDay = new Date(
+    targetMonth.getFullYear(),
+    targetMonth.getMonth() + 1,
+    0,
+  ).getDate();
+  return dateInputFromDate(
+    new Date(targetMonth.getFullYear(), targetMonth.getMonth(), Math.min(day, lastDay)),
+  );
+}
+
+function isMissingSavingsGoalsTable(error: { code: string }) {
+  return error.code === "42P01" || error.code === "PGRST205";
+}
+
 function sortByCreatedAscending(a: Transaction, b: Transaction) {
   return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
 }
@@ -360,6 +495,13 @@ function sortByDateNewest(a: Transaction, b: Transaction) {
   const dateDiff = new Date(b.date).getTime() - new Date(a.date).getTime();
   if (dateDiff !== 0) return dateDiff;
   return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+}
+
+function transactionDisplayCategory(transaction: Transaction) {
+  const installment = transaction.note.match(/(?:^| · )Taksit (\d+\/\d+)/)?.[1];
+  return installment
+    ? `${transaction.category} (${installment})`
+    : transaction.category;
 }
 
 function summarizeTransactions(items: Transaction[]) {
@@ -603,12 +745,27 @@ export default function Home() {
     getServerPrivacyModeSnapshot,
   );
   const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [planClock, setPlanClock] = useState(() => Date.now());
+  const [xlUpgradeOpen, setXLUpgradeOpen] = useState(false);
+  const [trialBannerDismissed, setTrialBannerDismissed] = useState(false);
   const [monthlyLimit, setMonthlyLimit] = useState<number | null>(null);
   const [monthlyLimitModalOpen, setMonthlyLimitModalOpen] = useState(false);
   const [monthlyLimitDraft, setMonthlyLimitDraft] = useState("");
   const [monthlyLimitSaving, setMonthlyLimitSaving] = useState(false);
   const [monthlyLimitError, setMonthlyLimitError] = useState("");
   const [fixedIncomes, setFixedIncomes] = useState<FixedIncome[]>([]);
+  const [savingsGoals, setSavingsGoals] = useState<SavingsGoal[]>([]);
+  const [savingsGoalsOwnerId, setSavingsGoalsOwnerId] = useState<string | null>(null);
+  const [savingsGoalsLocalFallbackUserId, setSavingsGoalsLocalFallbackUserId] =
+    useState<string | null>(null);
+  const [savingsGoalModalOpen, setSavingsGoalModalOpen] = useState(false);
+  const [savingsGoalTitle, setSavingsGoalTitle] = useState("");
+  const [savingsGoalTarget, setSavingsGoalTarget] = useState("");
+  const [savingsGoalInitial, setSavingsGoalInitial] = useState("");
+  const [goalContributionId, setGoalContributionId] = useState<string | null>(null);
+  const [goalContributionDraft, setGoalContributionDraft] = useState("");
+  const [savingGoal, setSavingGoal] = useState(false);
+  const [deletingGoal, setDeletingGoal] = useState(false);
   const [notificationCenterOpen, setNotificationCenterOpen] = useState(false);
   const [notificationSection, setNotificationSection] = useState<"items" | "settings">("items");
   const [reminderSettings, setReminderSettings] =
@@ -644,8 +801,12 @@ export default function Home() {
   const generatedIncomeKeys = useRef(new Set<string>());
   const generatedIncomeMonth = useRef("");
   const notificationUserIdRef = useRef<string | null>(null);
+  const permissionRequestedUserIdRef = useRef<string | null>(null);
+  const userRef = useRef(user);
+  const reminderSettingsRef = useRef(reminderSettings);
 
   const [activeTab, setActiveTab] = useState<TabKey>("overview");
+  const [isScrolled, setIsScrolled] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [loadedUserId, setLoadedUserId] = useState<string | null>(null);
 
@@ -661,6 +822,7 @@ export default function Home() {
   const [debts, setDebts] = useState<Debt[]>([]);
   const [historyFilter, setHistoryFilter] = useState<HistoryFilter>("all");
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
+  const [pendingDeleteGoalId, setPendingDeleteGoalId] = useState<string | null>(null);
   const [deletingTransactionId, setDeletingTransactionId] = useState<string | null>(null);
   const deleteCancelButtonRef = useRef<HTMLButtonElement | null>(null);
   const [toastMessage, setToastMessage] = useState("");
@@ -674,6 +836,7 @@ export default function Home() {
   const [txNote, setTxNote] = useState("");
   const [txDate, setTxDate] = useState(todayInputValue());
   const [txIsConfirmed, setTxIsConfirmed] = useState(true);
+  const [installmentCount, setInstallmentCount] = useState("1");
   const [editingTransactionId, setEditingTransactionId] = useState<string | null>(null);
   const [editType, setEditType] = useState<TransactionType>("expense");
   const [editTransferSource, setEditTransferSource] = useState<AccountKey>("bank");
@@ -688,6 +851,35 @@ export default function Home() {
   const [selectedMonth, setSelectedMonth] = useState<string | null>(() =>
     todayInputValue().slice(0, 7),
   );
+  const [analysisDateFilter, setAnalysisDateFilter] =
+    useState<AnalysisDateFilter>("month");
+  const [customRangeStart, setCustomRangeStart] = useState(todayInputValue());
+  const [customRangeEnd, setCustomRangeEnd] = useState(todayInputValue());
+  const isXL = isUserXL(profile, new Date(planClock));
+  const isPlanRestricted = profile !== null && !isXL;
+  const currentXLPrice = getXLMonthlyPrice(new Date(planClock));
+  const trialExpiryTimestamp = profile?.planExpiresAt
+    ? new Date(profile.planExpiresAt).getTime()
+    : Number.NaN;
+  const trialDaysRemaining =
+    profile?.planSource === "trial" && Number.isFinite(trialExpiryTimestamp)
+      ? Math.max(
+          0,
+          Math.ceil((trialExpiryTimestamp - planClock) / (24 * 60 * 60 * 1000)),
+        )
+      : null;
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setPlanClock(Date.now()), 60_000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    const updateScrollState = () => setIsScrolled(window.scrollY > 12);
+    updateScrollState();
+    window.addEventListener("scroll", updateScrollState, { passive: true });
+    return () => window.removeEventListener("scroll", updateScrollState);
+  }, []);
 
   const showToast = useCallback((message: string, duration = 2500) => {
     if (toastTimer.current) clearTimeout(toastTimer.current);
@@ -707,6 +899,10 @@ export default function Home() {
     setMonthlyLimitDraft(monthlyLimit === null ? "" : String(monthlyLimit));
     setMonthlyLimitError("");
     setMonthlyLimitModalOpen(true);
+  }
+
+  function openXLUpgrade() {
+    setXLUpgradeOpen(true);
   }
 
   async function persistMonthlyLimit(value: number | null) {
@@ -836,6 +1032,7 @@ export default function Home() {
       }
 
       if (nextSettings.enabled) {
+        permissionRequestedUserIdRef.current = user.id;
         try {
           const permission = await requestLocalNotificationPermission();
           permissionDenied = permission === false;
@@ -1052,7 +1249,7 @@ export default function Home() {
         .from("profiles")
         .update({ avatar_url: avatarUrl, updated_at: new Date().toISOString() })
         .eq("id", user.id)
-        .select("avatar_url,plan")
+        .select("*")
         .single();
 
       if (profileUpdateError) {
@@ -1061,10 +1258,7 @@ export default function Home() {
         return;
       }
 
-      setProfile({
-        avatarUrl: updatedProfile.avatar_url ? String(updatedProfile.avatar_url) : avatarUrl,
-        plan: updatedProfile.plan === "pro" ? "pro" : "standard",
-      });
+      setProfile(mapUserProfile(updatedProfile));
       setAvatarError("");
       showToast("Profil fotoğrafı güncellendi.");
     } catch (error) {
@@ -1376,18 +1570,19 @@ export default function Home() {
   }, [deleteAccountModalOpen, deletingAccount]);
 
   useEffect(() => {
-    if (!pendingDeleteId) return;
+    if (!pendingDeleteId && !pendingDeleteGoalId) return;
 
     deleteCancelButtonRef.current?.focus();
     function handleDeleteModalKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape" && !deletingTransactionId) {
+      if (event.key === "Escape" && !deletingTransactionId && !deletingGoal) {
         setPendingDeleteId(null);
+        setPendingDeleteGoalId(null);
       }
     }
 
     window.addEventListener("keydown", handleDeleteModalKeyDown);
     return () => window.removeEventListener("keydown", handleDeleteModalKeyDown);
-  }, [deletingTransactionId, pendingDeleteId]);
+  }, [deletingGoal, deletingTransactionId, pendingDeleteGoalId, pendingDeleteId]);
 
   // 0. KULLANICI OTURUMUNU DİNLEME
   useEffect(() => {
@@ -1543,13 +1738,13 @@ export default function Home() {
           console.error("Yerel veri önbelleği okunamadı:", cacheError);
         }
 
-        const [balanceRes, txRes, debtRes, profileRes, fixedIncomeRes] = await Promise.all([
+        const [balanceRes, txRes, debtRes, initialProfileRes, fixedIncomeRes] = await Promise.all([
           supabase.from("base_balances").select("*").eq("user_id", user!.id).maybeSingle(),
           supabase.from("transactions").select("*").eq("user_id", user!.id),
           supabase.from("debts").select("*").eq("user_id", user!.id),
           supabase
             .from("profiles")
-            .select("avatar_url,plan,monthly_limit")
+            .select("avatar_url,plan,plan_source,plan_expires_at,monthly_limit")
             .eq("id", user!.id)
             .maybeSingle(),
           supabase
@@ -1559,6 +1754,21 @@ export default function Home() {
         ]);
 
         if (cancelled) return;
+
+        let profileRes = initialProfileRes;
+        let planColumnsAvailable = true;
+        if (
+          profileRes.error &&
+          (profileRes.error.code === "42703" || profileRes.error.code === "PGRST204")
+        ) {
+          profileRes = await supabase
+            .from("profiles")
+            .select("avatar_url,plan,monthly_limit")
+            .eq("id", user!.id)
+            .maybeSingle();
+          if (cancelled) return;
+          planColumnsAvailable = false;
+        }
 
         const loadErrors: string[] = [];
         function recordLoadError(label: string, error: {
@@ -1588,37 +1798,9 @@ export default function Home() {
           });
         }
 
-        const dbTransactions: Transaction[] = (txRes.data ?? []).map((row: {
-          id: string | number;
-          date: string;
-          type: string;
-          account: string;
-          to_account: string | null;
-          fixed_income_id: string | null;
-          generated_month: string | null;
-          category: string;
-          amount: string | number;
-          note: string | null;
-          created_at: string;
-          is_confirmed: boolean | null;
-          source: string | null;
-          debt_id: string | null;
-        }) => ({
-          id: String(row.id),
-          date: String(row.date),
-          type: row.type as TransactionType,
-          account: row.account as AccountKey,
-          toAccount: row.to_account ? (row.to_account as AccountKey) : undefined,
-          fixedIncomeId: row.fixed_income_id ? String(row.fixed_income_id) : undefined,
-          generatedMonth: row.generated_month ? String(row.generated_month) : undefined,
-          category: String(row.category),
-          amount: Number(row.amount),
-          note: String(row.note ?? ""),
-          createdAt: String(row.created_at),
-          isConfirmed: row.is_confirmed == null ? true : Boolean(row.is_confirmed),
-          source: (row.source as "manual" | "debtPayment") ?? "manual",
-          debtId: row.debt_id ? String(row.debt_id) : undefined,
-        }));
+        let dbTransactions: Transaction[] = (txRes.data ?? []).map(
+          (row: DatabaseTransactionRow) => mapDatabaseTransaction(row),
+        );
         if (txRes.error) {
           recordLoadError("İşlem yükleme hatası:", txRes.error);
         } else {
@@ -1676,16 +1858,15 @@ export default function Home() {
           createdAt: String(row.created_at),
         }));
 
+        let resolvedProfile: UserProfile | null = null;
         if (profileRes.error) {
           recordLoadError("Profil yükleme hatası:", profileRes.error);
           setProfileError(
             `Profil bilgileri yüklenemedi [${profileRes.error.code}]: ${profileRes.error.message}`,
           );
         } else if (profileRes.data) {
-          setProfile({
-            avatarUrl: profileRes.data.avatar_url ? String(profileRes.data.avatar_url) : null,
-            plan: profileRes.data.plan === "pro" ? "pro" : "standard",
-          });
+          resolvedProfile = mapUserProfile(profileRes.data);
+          setProfile(resolvedProfile);
           const loadedMonthlyLimit = parseMonthlyLimit(
             profileRes.data.monthly_limit == null
               ? null
@@ -1700,30 +1881,71 @@ export default function Home() {
           } catch (cacheError) {
             console.error("Aylık limit önbelleğe yazma hatası:", cacheError);
           }
-          setProfileError("");
         } else {
           const cachedMonthlyLimit = parseMonthlyLimit(
             localStorage.getItem(monthlyLimitStorageKey(user!.id)),
           );
-          const { data: createdProfile, error: createProfileError } = await supabase
-            .from("profiles")
-            .upsert(
-              { id: user!.id, monthly_limit: cachedMonthlyLimit },
-              { onConflict: "id" },
-            )
-            .select("avatar_url,plan,monthly_limit")
-            .single();
+          const trialExpiresAt = getTrialExpiresAt(user!.created_at);
+          if (planColumnsAvailable && !trialExpiresAt) {
+            throw new Error("Hesap kayıt tarihi okunamadığı için XL deneme süresi oluşturulamadı.");
+          }
+          let createdProfile: {
+            avatar_url: string | null;
+            plan: string | null;
+            plan_source?: string | null;
+            plan_expires_at?: string | null;
+            monthly_limit: string | number | null;
+          } | null = null;
+          let createProfileError: {
+            code: string;
+            message: string;
+            details: string;
+            hint: string;
+          } | null = null;
+          if (planColumnsAvailable) {
+            const result = await supabase
+              .from("profiles")
+              .upsert(
+                {
+                  id: user!.id,
+                  monthly_limit: cachedMonthlyLimit,
+                  plan: "XL",
+                  plan_source: "trial",
+                  plan_expires_at: trialExpiresAt,
+                },
+                { onConflict: "id" },
+              )
+              .select("avatar_url,plan,plan_source,plan_expires_at,monthly_limit")
+              .single();
+            if (cancelled) return;
+            createdProfile = result.data;
+            createProfileError = result.error;
+          } else {
+            const result = await supabase
+              .from("profiles")
+              .upsert(
+                { id: user!.id, monthly_limit: cachedMonthlyLimit },
+                { onConflict: "id" },
+              )
+              .select("avatar_url,plan,monthly_limit")
+              .single();
+            if (cancelled) return;
+            createdProfile = result.data;
+            createProfileError = result.error;
+          }
 
-          if (createProfileError) {
-            recordLoadError("Profil oluşturma hatası:", createProfileError);
+          if (createProfileError || !createdProfile) {
+            if (createProfileError) {
+              recordLoadError("Profil oluşturma hatası:", createProfileError);
+            }
             setProfileError(
-              `Profil oluşturulamadı [${createProfileError.code}]: ${createProfileError.message}`,
+              createProfileError
+                ? `Profil oluşturulamadı [${createProfileError.code}]: ${createProfileError.message}`
+                : "Profil oluşturulamadı: Supabase profil yanıtı boş döndü.",
             );
           } else {
-            setProfile({
-              avatarUrl: createdProfile.avatar_url ? String(createdProfile.avatar_url) : null,
-              plan: createdProfile.plan === "pro" ? "pro" : "standard",
-            });
+            resolvedProfile = mapUserProfile(createdProfile);
+            setProfile(resolvedProfile);
             const createdMonthlyLimit = parseMonthlyLimit(
               createdProfile.monthly_limit == null
                 ? null
@@ -1738,7 +1960,115 @@ export default function Home() {
             } catch (cacheError) {
               console.error("Aylık limit önbelleğe yazma hatası:", cacheError);
             }
-            setProfileError("");
+          }
+        }
+
+        let profileConfigurationError: string | null = null;
+        if (
+          resolvedProfile?.plan === "XL" &&
+          resolvedProfile.planSource === "trial" &&
+          !resolvedProfile.planExpiresAt &&
+          planColumnsAvailable
+        ) {
+          const trialExpiresAt = getTrialExpiresAt(user!.created_at);
+          if (trialExpiresAt) {
+            const { error: expiryUpdateError } = await supabase
+              .from("profiles")
+              .update({ plan_expires_at: trialExpiresAt })
+              .eq("id", user!.id);
+            if (cancelled) return;
+            if (expiryUpdateError) {
+              console.error("XL deneme bitiş tarihi kaydedilemedi:", expiryUpdateError);
+              profileConfigurationError =
+                `XL deneme bitiş tarihi kaydedilemedi [${expiryUpdateError.code}]: ${expiryUpdateError.message}`;
+            } else {
+              resolvedProfile = { ...resolvedProfile, planExpiresAt: trialExpiresAt };
+              setProfile(resolvedProfile);
+            }
+          }
+        }
+
+        if (resolvedProfile && planColumnsAvailable) {
+          setProfileError(profileConfigurationError ?? "");
+        } else if (resolvedProfile) {
+          const migrationMessage =
+            "Plan sistemi için Supabase SQL güncellemesini uygulaman gerekiyor.";
+          setProfileError(migrationMessage);
+          showToast(migrationMessage, 7000);
+        }
+
+        if (resolvedProfile && planColumnsAvailable && !txRes.error) {
+          if (!dbTransactions.some((item) => item.isSystemXL)) {
+            const subscriptionDate =
+              resolvedProfile.planExpiresAt ?? getTrialExpiresAt(user!.created_at);
+            if (!subscriptionDate) {
+              throw new Error("XL abonelik işlemi için kayıt tarihi okunamadı.");
+            }
+            const systemTransaction = {
+              id: user!.id,
+              user_id: user!.id,
+              date: localDateKey(new Date(subscriptionDate)),
+              type: "expense",
+              account: "bank",
+              category: "Fiyor₺X XL Aboneliği",
+              amount: getXLMonthlyPrice(),
+              note: "1 kahve parasına koca ayın hesabı — yine de sen bilirsin.",
+              created_at: new Date().toISOString(),
+              is_confirmed: false,
+              is_system_xl: true,
+              source: "manual",
+            };
+            const { data: insertedSystemTransaction, error: systemTransactionError } =
+              await supabase
+                .from("transactions")
+                .upsert(systemTransaction, { onConflict: "id", ignoreDuplicates: true })
+                .select("*")
+                .maybeSingle();
+            if (cancelled) return;
+
+            if (systemTransactionError) {
+              console.error("XL abonelik sistem işlemi oluşturulamadı:", systemTransactionError);
+              showToast(
+                `XL abonelik işlemi oluşturulamadı [${systemTransactionError.code}]: ${systemTransactionError.message}`,
+                8000,
+              );
+              setProfileError(
+                `XL abonelik işlemi oluşturulamadı [${systemTransactionError.code}]: ${systemTransactionError.message}`,
+              );
+            } else {
+              let savedSystemTransaction = insertedSystemTransaction;
+              if (!savedSystemTransaction) {
+                const { data: existingSystemTransaction, error: lookupError } = await supabase
+                  .from("transactions")
+                  .select("*")
+                  .eq("user_id", user!.id)
+                  .eq("is_system_xl", true)
+                  .maybeSingle();
+                if (cancelled) return;
+                if (lookupError) {
+                  console.error("XL abonelik sistem işlemi doğrulanamadı:", lookupError);
+                  showToast(
+                    `XL abonelik işlemi doğrulanamadı [${lookupError.code}]: ${lookupError.message}`,
+                    8000,
+                  );
+                  setProfileError(
+                    `XL abonelik işlemi doğrulanamadı [${lookupError.code}]: ${lookupError.message}`,
+                  );
+                } else {
+                  savedSystemTransaction = existingSystemTransaction;
+                }
+              }
+              if (savedSystemTransaction) {
+                dbTransactions = [
+                  ...dbTransactions,
+                  mapDatabaseTransaction(savedSystemTransaction),
+                ];
+                setTransactions(dbTransactions);
+              } else {
+                setProfileError("XL abonelik sistem işlemi kaydedildi ancak okunamadı.");
+                showToast("XL abonelik sistem işlemi kaydedildi ancak okunamadı.", 8000);
+              }
+            }
           }
         }
 
@@ -1782,6 +2112,75 @@ export default function Home() {
   }, [authReady, generateDueFixedIncomes, showToast, user]);
 
   useEffect(() => {
+    if (!authReady || !user) return;
+    const targetUser = user;
+    let cancelled = false;
+    const storageKey = `fiyor-savings-goals:${targetUser.id}`;
+
+    async function loadSavingsGoals() {
+      let cachedGoals: SavingsGoal[] = [];
+      try {
+        const cached = localStorage.getItem(storageKey);
+        if (cached) {
+          const parsed: unknown = JSON.parse(cached);
+          if (Array.isArray(parsed)) {
+            cachedGoals = parsed.filter(
+              (goal): goal is SavingsGoal =>
+                !!goal &&
+                typeof goal === "object" &&
+                typeof goal.id === "string" &&
+                typeof goal.title === "string" &&
+                typeof goal.targetAmount === "number" &&
+                typeof goal.currentAmount === "number" &&
+                typeof goal.createdAt === "string",
+            );
+          }
+        }
+      } catch (error) {
+        console.error("Birikim hedefleri yerel depolamadan okunamadı:", error);
+      }
+
+      if (cancelled) return;
+      setSavingsGoalsOwnerId(targetUser.id);
+      setSavingsGoals(cachedGoals);
+
+      const { data, error } = await supabase
+        .from("savings_goals")
+        .select("id,title,target_amount,current_amount,created_at")
+        .eq("user_id", targetUser.id)
+        .order("created_at", { ascending: true });
+
+      if (cancelled) return;
+      if (error) {
+        if (isMissingSavingsGoalsTable(error)) {
+          setSavingsGoalsLocalFallbackUserId(targetUser.id);
+          return;
+        }
+        console.error("Birikim hedefleri yükleme hatası:", error);
+        showToast(`Birikim hedefleri yüklenemedi [${error.code}]: ${error.message}`, 8000);
+        return;
+      }
+
+      setSavingsGoalsLocalFallbackUserId(null);
+      setSavingsGoalsOwnerId(targetUser.id);
+      setSavingsGoals(
+        (data ?? []).map((row) => ({
+          id: String(row.id),
+          title: String(row.title),
+          targetAmount: Number(row.target_amount),
+          currentAmount: Number(row.current_amount),
+          createdAt: String(row.created_at),
+        })),
+      );
+    }
+
+    void loadSavingsGoals();
+    return () => {
+      cancelled = true;
+    };
+  }, [authReady, showToast, user]);
+
+  useEffect(() => {
     if (!loaded || !user || loadedUserId !== user.id) return;
 
     const data: PersistedState = {
@@ -1796,6 +2195,7 @@ export default function Home() {
   function handleTransactionTypeChange(nextType: TransactionType) {
     setTxType(nextType);
     setTxIsConfirmed(nextType === "expense");
+    if (nextType !== "expense") setInstallmentCount("1");
     if (nextType === "transfer") {
       setTxCategory("Transfer");
       const sourceAccount = transferSourceOptions.includes(txAccount) ? txAccount : "bank";
@@ -1869,9 +2269,6 @@ export default function Home() {
     ) {
       const dateKey = localDateKey(date);
       const at = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 9, 0, 0);
-      if (dateKey === todayKey && at.getTime() <= Date.now()) {
-        at.setTime(Date.now() + 60_000);
-      }
       reminders.push({
         id: key,
         key,
@@ -1932,6 +2329,27 @@ export default function Home() {
       }
     }
 
+    if (reminderSettings.enabled && reminderSettingsReadyUserId === user?.id) {
+      const currentBalances = calculateBalances(baseBalances, transactions);
+      for (const [account, label] of [
+        ["cash", "Nakit"],
+        ["bank", "Banka"],
+        ["benefit", "Yan Hak"],
+        ["savings", "Birikim"],
+        ["creditDebt", "Kredi kartı borcu"],
+      ] as const) {
+        if (currentBalances[account] < 0) {
+          addReminder(
+            `balance:${account}`,
+            today,
+            "Eksi bakiye uyarısı",
+            `${label} bakiyesi eksiye düştü.`,
+            "balance",
+          );
+        }
+      }
+    }
+
     if (
       reminderSettings.enabled &&
       reminderSettingsReadyUserId === user?.id &&
@@ -1952,11 +2370,13 @@ export default function Home() {
 
     return reminders.sort((a, b) => a.dateKey.localeCompare(b.dateKey));
   }, [
+    baseBalances,
     fixedIncomes,
     monthlyExpenseTotal,
     monthlyLimit,
     reminderSettings,
     reminderSettingsReadyUserId,
+    transactions,
     user?.id,
   ]);
   const activeReminders = useMemo(
@@ -1973,19 +2393,29 @@ export default function Home() {
   const scheduledReminders = useMemo(
     () =>
       reminderDates.filter((reminder) => {
-        if (reminder.kind === "limit") return false;
         const month = reminder.dateKey.slice(0, 7);
         return !(dismissedRemindersByMonth[month] ?? []).includes(reminder.id);
       }),
     [dismissedRemindersByMonth, reminderDates],
   );
+  const scheduledRemindersRef = useRef(scheduledReminders);
+
+  useEffect(() => {
+    userRef.current = user;
+    reminderSettingsRef.current = reminderSettings;
+    scheduledRemindersRef.current = scheduledReminders;
+  }, [reminderSettings, scheduledReminders, user]);
 
   useEffect(() => {
     if (!user || !loaded || loadedUserId !== user.id || reminderSettingsReadyUserId !== user.id) {
       return;
     }
 
-    void synchronizeLocalNotifications(user.id, scheduledReminders)
+    void synchronizeLocalNotifications(
+      user.id,
+      scheduledReminders,
+      reminderSettings.enabled,
+    )
       .then((result) => {
         if (result.status === "permission-denied") {
           showToast("Cihaz bildirim izni kapalı. Hatırlatmalar uygulama içinde görünür.");
@@ -1998,13 +2428,100 @@ export default function Home() {
           7000,
         );
       });
-  }, [loaded, loadedUserId, reminderSettingsReadyUserId, scheduledReminders, showToast, user]);
+  }, [
+    loaded,
+    loadedUserId,
+    reminderSettings.enabled,
+    reminderSettingsReadyUserId,
+    scheduledReminders,
+    showToast,
+    user,
+  ]);
+
+  useEffect(() => {
+    if (
+      !user ||
+      !loaded ||
+      loadedUserId !== user.id ||
+      reminderSettingsReadyUserId !== user.id ||
+      !reminderSettings.enabled ||
+      permissionRequestedUserIdRef.current === user.id
+    ) {
+      return;
+    }
+
+    permissionRequestedUserIdRef.current = user.id;
+    void requestLocalNotificationPermission()
+      .then((permission) => {
+        if (
+          permission !== true ||
+          !reminderSettingsRef.current.enabled ||
+          userRef.current?.id !== user.id
+        ) {
+          return;
+        }
+        return synchronizeLocalNotifications(
+          user.id,
+          scheduledRemindersRef.current,
+          true,
+        );
+      })
+      .catch((error: unknown) => {
+        console.warn("Yerel bildirim izni kontrol edilemedi:", error);
+      });
+  }, [
+    loaded,
+    loadedUserId,
+    reminderSettings.enabled,
+    reminderSettingsReadyUserId,
+    scheduledReminders,
+    user,
+  ]);
+
+  useEffect(() => {
+    if (!user || !loaded || loadedUserId !== user.id || reminderSettingsReadyUserId !== user.id) {
+      return;
+    }
+
+    const userId = user.id;
+    const notificationsEnabled = reminderSettings.enabled;
+    const reminders = scheduledReminders;
+    const synchronizeForVisibility = () => {
+      void synchronizeLocalNotifications(userId, reminders, notificationsEnabled).catch(
+        (error: unknown) => {
+          console.error("Uygulama durumu değişince hatırlatmalar eşitlenemedi:", error);
+        },
+      );
+    };
+    const cleanWhileForeground = () => {
+      if (document.visibilityState !== "visible") return;
+      void cleanNearOrExpiredLocalNotifications(userId).catch((error: unknown) => {
+        console.error("Yakın zamanlı bildirimler temizlenemedi:", error);
+      });
+    };
+
+    document.addEventListener("visibilitychange", synchronizeForVisibility);
+    window.addEventListener("focus", synchronizeForVisibility);
+    const safetyInterval = window.setInterval(cleanWhileForeground, 30_000);
+    return () => {
+      document.removeEventListener("visibilitychange", synchronizeForVisibility);
+      window.removeEventListener("focus", synchronizeForVisibility);
+      window.clearInterval(safetyInterval);
+    };
+  }, [
+    loaded,
+    loadedUserId,
+    reminderSettings.enabled,
+    reminderSettingsReadyUserId,
+    scheduledReminders,
+    user,
+  ]);
 
   useEffect(() => {
     const previousUserId = notificationUserIdRef.current;
     const nextUserId = user?.id ?? null;
     if (previousUserId && previousUserId !== nextUserId) {
-      void synchronizeLocalNotifications(previousUserId, []).catch((error: unknown) => {
+      void synchronizeLocalNotifications(previousUserId, [], false).catch((error: unknown) => {
         console.error("Önceki kullanıcı bildirimleri temizlenemedi:", error);
       });
     }
@@ -2020,18 +2537,119 @@ export default function Home() {
     return () => window.removeEventListener("keydown", closeOnEscape);
   }, [notificationCenterOpen]);
 
+  useEffect(() => {
+    if (!xlUpgradeOpen) return;
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") setXLUpgradeOpen(false);
+    }
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [xlUpgradeOpen]);
+
   const openingNetEntry =
     baseBalances.cash +
     baseBalances.bank +
     baseBalances.savings -
     baseBalances.creditDebt;
 
+  const analysisReferenceMonth = analysisReferenceDate.slice(0, 7);
+  const effectiveAnalysisDateFilter = isPlanRestricted ? "month" : analysisDateFilter;
+  const effectiveSelectedMonth = isPlanRestricted ? currentMonth : selectedMonth;
+  const isForecastView = effectiveAnalysisDateFilter.startsWith("future-");
+  const isCustomAnalysisRangeValid = Boolean(
+    customRangeStart && customRangeEnd && customRangeStart <= customRangeEnd,
+  );
+  const analysisRange = useMemo(() => {
+    if (effectiveAnalysisDateFilter === "month") {
+      return effectiveSelectedMonth
+        ? { start: `${effectiveSelectedMonth}-01`, end: endOfMonth(effectiveSelectedMonth) }
+        : { start: null, end: null };
+    }
+    if (effectiveAnalysisDateFilter === "all") return { start: null, end: null };
+    if (effectiveAnalysisDateFilter === "custom") {
+      return { start: customRangeStart, end: customRangeEnd };
+    }
+
+    const count = Number(effectiveAnalysisDateFilter.split("-")[1]);
+    if (effectiveAnalysisDateFilter.startsWith("past-")) {
+      const startMonth = shiftMonth(analysisReferenceMonth, -(count - 1));
+      return { start: `${startMonth}-01`, end: endOfMonth(analysisReferenceMonth) };
+    }
+
+    const firstFutureMonth = shiftMonth(analysisReferenceMonth, 1);
+    const endMonth = shiftMonth(analysisReferenceMonth, count);
+    return { start: `${firstFutureMonth}-01`, end: endOfMonth(endMonth) };
+  }, [
+    effectiveAnalysisDateFilter,
+    analysisReferenceMonth,
+    customRangeEnd,
+    customRangeStart,
+    effectiveSelectedMonth,
+  ]);
+
   const analysisTransactions = useMemo(() => {
-    return transactions.filter((item) => {
-      if (item.type !== "transfer" && !item.isConfirmed) return false;
-      return !selectedMonth || item.date.slice(0, 7) === selectedMonth;
+    if (effectiveAnalysisDateFilter === "custom" && !isCustomAnalysisRangeValid) return [];
+
+    const inRange = (date: string) =>
+      (!analysisRange.start || date >= analysisRange.start) &&
+      (!analysisRange.end || date <= analysisRange.end);
+    const matchingTransactions = transactions.filter((item) => {
+      if (isXL && item.isSystemXL) return false;
+      if (
+        !isForecastView &&
+        effectiveAnalysisDateFilter !== "custom" &&
+        item.type !== "transfer" &&
+        !item.isConfirmed
+      ) {
+        return false;
+      }
+      return inRange(item.date);
     });
-  }, [selectedMonth, transactions]);
+
+    if (!isForecastView) return matchingTransactions;
+
+    const existingFixedOccurrences = new Set(
+      transactions
+        .filter((item) => item.fixedIncomeId && item.generatedMonth)
+        .map((item) => `${item.fixedIncomeId}:${item.generatedMonth}`),
+    );
+    const projectedFixedIncomes: Transaction[] = [];
+    for (let offset = 0; offset < Number(effectiveAnalysisDateFilter.split("-")[1]); offset += 1) {
+      const month = shiftMonth(analysisReferenceMonth, offset + 1);
+      const [year, monthNumber] = month.split("-").map(Number);
+      const lastDay = new Date(year, monthNumber, 0).getDate();
+      for (const income of fixedIncomes) {
+        if (existingFixedOccurrences.has(`${income.id}:${month}`)) continue;
+        const date = `${month}-${String(Math.min(income.dayOfMonth, lastDay)).padStart(2, "0")}`;
+        if (!inRange(date)) continue;
+        projectedFixedIncomes.push({
+          id: `forecast:${income.id}:${month}`,
+          date,
+          type: income.type,
+          account: income.account,
+          fixedIncomeId: income.id,
+          generatedMonth: month,
+          category: income.title,
+          amount: income.amount,
+          note: "Sabit işlem öngörüsü",
+          createdAt: income.createdAt,
+          isConfirmed: true,
+          source: "manual",
+        });
+      }
+    }
+    return [...matchingTransactions, ...projectedFixedIncomes];
+  }, [
+    effectiveAnalysisDateFilter,
+    isCustomAnalysisRangeValid,
+    analysisRange.end,
+    analysisRange.start,
+    analysisReferenceMonth,
+    fixedIncomes,
+    isXL,
+    isForecastView,
+    transactions,
+  ]);
 
   const transactionSummary = useMemo(() => {
     let totalIncome = 0;
@@ -2053,7 +2671,7 @@ export default function Home() {
   }, [analysisTransactions]);
 
   const totalExpenseIncludingOpeningDebt =
-    transactionSummary.totalExpense + baseBalances.creditDebt;
+    transactionSummary.totalExpense + (isForecastView ? 0 : baseBalances.creditDebt);
 
   const categoryData = useMemo(() => {
     const grouped: Record<string, number> = {};
@@ -2266,7 +2884,18 @@ export default function Home() {
   }, [analysisTransactions, privacyMode, transactionSummary.totalExpense, transactionSummary.totalIncome]);
 
   const trendAnalysis = useMemo(() => {
-    const range = getTrendComparisonRange(selectedMonth);
+    if (effectiveAnalysisDateFilter !== "month") {
+      return {
+        hasComparison: false,
+        message: isForecastView
+          ? "Tahmini dönem görünümünde geçmiş ay trendi gösterilmez."
+          : "Seçilen tarih aralığında aylık karşılaştırma gösterilmez.",
+        metricTrends: null,
+        items: [],
+      };
+    }
+
+    const range = getTrendComparisonRange(effectiveSelectedMonth);
 
     if (!range) {
       return {
@@ -2379,10 +3008,12 @@ export default function Home() {
       ],
     };
   }, [
+    effectiveAnalysisDateFilter,
     analysisTransactions,
     baseBalances.creditDebt,
+    isForecastView,
     privacyMode,
-    selectedMonth,
+    effectiveSelectedMonth,
     transactions,
   ]);
 
@@ -2415,13 +3046,207 @@ export default function Home() {
     const monthTransactions = selectedMonth
       ? transactions.filter((item) => item.date.slice(0, 7) === selectedMonth)
       : transactions;
-    const sorted = [...monthTransactions].sort(sortByDateNewest);
+    const sorted = monthTransactions
+      .filter((item) => !(isXL && item.isSystemXL))
+      .sort(sortByDateNewest);
     if (historyFilter === "pending") {
-      return sorted.filter((item) => item.type !== "transfer" && !item.isConfirmed);
+      return sorted.filter(
+        (item) => item.isSystemXL || (item.type !== "transfer" && !item.isConfirmed),
+      );
     }
     if (historyFilter === "all") return sorted;
-    return sorted.filter((item) => item.type === historyFilter);
-  }, [historyFilter, selectedMonth, transactions]);
+    return sorted.filter((item) => item.isSystemXL || item.type === historyFilter);
+  }, [historyFilter, isXL, selectedMonth, transactions]);
+
+  const activeSavingsGoals =
+    savingsGoalsOwnerId === user?.id ? savingsGoals : [];
+  const usesLocalSavingsGoals = Boolean(
+    user && savingsGoalsLocalFallbackUserId === user.id,
+  );
+
+  function persistLocalSavingsGoals(nextGoals: SavingsGoal[]) {
+    if (!user) return false;
+    try {
+      localStorage.setItem(`fiyor-savings-goals:${user.id}`, JSON.stringify(nextGoals));
+      return true;
+    } catch (error) {
+      console.error("Birikim hedefleri yerel depolamaya yazılamadı:", error);
+      showToast("Birikim hedefleri yerel depolamaya kaydedilemedi.", 7000);
+      return false;
+    }
+  }
+
+  async function addSavingsGoal(event: React.FormEvent) {
+    event.preventDefault();
+    if (!user) return;
+
+    const targetAmount = parseAmountInput(savingsGoalTarget);
+    const currentAmount = parseAmountInput(savingsGoalInitial || "0");
+    const title = savingsGoalTitle.trim();
+    if (!title || !Number.isFinite(targetAmount) || targetAmount <= 0) {
+      showToast("Hedef adı ve sıfırdan büyük bir hedef tutarı gir.");
+      return;
+    }
+    if (!Number.isFinite(currentAmount) || currentAmount < 0) {
+      showToast("Başlangıç tutarı sıfır veya daha büyük olmalı.");
+      return;
+    }
+
+    const newGoal: SavingsGoal = {
+      id: createId("goal"),
+      title,
+      targetAmount,
+      currentAmount,
+      createdAt: new Date().toISOString(),
+    };
+    const nextGoals = [...activeSavingsGoals, newGoal];
+    setSavingGoal(true);
+
+    if (usesLocalSavingsGoals) {
+      if (persistLocalSavingsGoals(nextGoals)) {
+        setSavingsGoals(nextGoals);
+        setSavingsGoalModalOpen(false);
+        setSavingsGoalTitle("");
+        setSavingsGoalTarget("");
+        setSavingsGoalInitial("");
+      }
+      setSavingGoal(false);
+      return;
+    }
+
+    const { data, error } = await supabase
+      .from("savings_goals")
+      .insert({
+        id: newGoal.id,
+        user_id: user.id,
+        title: newGoal.title,
+        target_amount: newGoal.targetAmount,
+        current_amount: newGoal.currentAmount,
+      })
+      .select("id,title,target_amount,current_amount,created_at")
+      .single();
+
+    if (error) {
+      if (isMissingSavingsGoalsTable(error)) {
+        setSavingsGoalsLocalFallbackUserId(user.id);
+        if (persistLocalSavingsGoals(nextGoals)) {
+          setSavingsGoals(nextGoals);
+          setSavingsGoalModalOpen(false);
+          setSavingsGoalTitle("");
+          setSavingsGoalTarget("");
+          setSavingsGoalInitial("");
+        }
+      } else {
+        console.error("Birikim hedefi ekleme hatası:", error);
+        showToast(`Birikim hedefi eklenemedi [${error.code}]: ${error.message}`, 8000);
+      }
+    } else {
+      setSavingsGoals((current) => [
+        ...current,
+        {
+          id: String(data.id),
+          title: String(data.title),
+          targetAmount: Number(data.target_amount),
+          currentAmount: Number(data.current_amount),
+          createdAt: String(data.created_at),
+        },
+      ]);
+      setSavingsGoalModalOpen(false);
+      setSavingsGoalTitle("");
+      setSavingsGoalTarget("");
+      setSavingsGoalInitial("");
+    }
+    setSavingGoal(false);
+  }
+
+  async function addSavingsGoalContribution(goalId: string) {
+    if (!user) return;
+    const contribution = parseAmountInput(goalContributionDraft);
+    const goal = activeSavingsGoals.find((item) => item.id === goalId);
+    if (!goal || !Number.isFinite(contribution) || contribution <= 0) {
+      showToast("Eklenecek tutar sıfırdan büyük olmalı.");
+      return;
+    }
+
+    const updatedGoal = { ...goal, currentAmount: goal.currentAmount + contribution };
+    const nextGoals = activeSavingsGoals.map((item) =>
+      item.id === goalId ? updatedGoal : item,
+    );
+    setSavingGoal(true);
+
+    if (usesLocalSavingsGoals) {
+      if (persistLocalSavingsGoals(nextGoals)) {
+        setSavingsGoals(nextGoals);
+        setGoalContributionId(null);
+        setGoalContributionDraft("");
+      }
+      setSavingGoal(false);
+      return;
+    }
+
+    const { error } = await supabase
+      .from("savings_goals")
+      .update({ current_amount: updatedGoal.currentAmount })
+      .eq("id", goalId)
+      .eq("user_id", user.id);
+
+    if (error) {
+      if (isMissingSavingsGoalsTable(error)) {
+        setSavingsGoalsLocalFallbackUserId(user.id);
+        if (persistLocalSavingsGoals(nextGoals)) {
+          setSavingsGoals(nextGoals);
+          setGoalContributionId(null);
+          setGoalContributionDraft("");
+        }
+      } else {
+        console.error("Birikim hedefi güncelleme hatası:", error);
+        showToast(`Birikime tutar eklenemedi [${error.code}]: ${error.message}`, 8000);
+      }
+    } else {
+      setSavingsGoals(nextGoals);
+      setGoalContributionId(null);
+      setGoalContributionDraft("");
+    }
+    setSavingGoal(false);
+  }
+
+  async function deleteSavingsGoal(goalId: string) {
+    if (!user) return;
+    const nextGoals = activeSavingsGoals.filter((goal) => goal.id !== goalId);
+    setDeletingGoal(true);
+
+    if (usesLocalSavingsGoals) {
+      if (persistLocalSavingsGoals(nextGoals)) {
+        setSavingsGoals(nextGoals);
+        setPendingDeleteGoalId(null);
+      }
+      setDeletingGoal(false);
+      return;
+    }
+
+    const { error } = await supabase
+      .from("savings_goals")
+      .delete()
+      .eq("id", goalId)
+      .eq("user_id", user.id);
+
+    if (error) {
+      if (isMissingSavingsGoalsTable(error)) {
+        setSavingsGoalsLocalFallbackUserId(user.id);
+        if (persistLocalSavingsGoals(nextGoals)) {
+          setSavingsGoals(nextGoals);
+          setPendingDeleteGoalId(null);
+        }
+      } else {
+        console.error("Birikim hedefi silme hatası:", error);
+        showToast(`Birikim hedefi silinemedi [${error.code}]: ${error.message}`, 8000);
+      }
+    } else {
+      setSavingsGoals(nextGoals);
+      setPendingDeleteGoalId(null);
+    }
+    setDeletingGoal(false);
+  }
 
   function updateBaseBalance(key: keyof BaseBalances, rawValue: string) {
     if (!user) return;
@@ -2456,6 +3281,15 @@ export default function Home() {
   async function addTransaction(event: React.FormEvent) {
     event.preventDefault();
     if (!user) return;
+    if (
+      isPlanRestricted &&
+      txType === "expense" &&
+      txAccount === "creditCard" &&
+      Number(installmentCount) > 1
+    ) {
+      openXLUpgrade();
+      return;
+    }
 
     const amount = parseAmountInput(txAmount);
 
@@ -2475,38 +3309,87 @@ export default function Home() {
     }
 
     const transactionDate = txDate || todayInputValue();
-    const newTransaction: Transaction = {
-      id: createId("tx"),
-      date: transactionDate,
-      type: txType,
-      account: txAccount,
-      toAccount: txType === "transfer" ? txTransferTarget : undefined,
-      category: txType === "transfer" ? "Transfer" : txCategory.trim(),
-      amount,
-      note: txNote.trim(),
-      createdAt: new Date().toISOString(),
-      isConfirmed:
-        txType === "transfer" ||
-        (txIsConfirmed && transactionDate <= todayInputValue()),
-      source: "manual",
-    };
+    const isInstallmentPurchase =
+      txType === "expense" && txAccount === "creditCard" && Number(installmentCount) > 1;
+    const count = isInstallmentPurchase ? Number(installmentCount) : 1;
+    const totalCents = Math.round(amount * 100);
+    const baseCents = Math.floor(totalCents / count);
+    if (isInstallmentPurchase && baseCents < 1) {
+      showToast("Tutar, seçilen taksit sayısına bölünemeyecek kadar küçük.");
+      return;
+    }
+    const firstInstallmentCents = baseCents + (totalCents - baseCents * count);
+    const createdAt = new Date().toISOString();
+    const newTransactions: Transaction[] = Array.from({ length: count }, (_, index) => {
+      const installmentAmount =
+        count > 1
+          ? (index === 0 ? firstInstallmentCents : baseCents) / 100
+          : amount;
+      const installmentNote = isInstallmentPurchase
+        ? [
+            txNote.trim(),
+            `Taksit ${index + 1}/${count}`,
+          ]
+            .filter(Boolean)
+            .join(" · ")
+        : txNote.trim();
 
-    const { error } = await supabase.from("transactions").insert({
-      id: newTransaction.id,
-      user_id: user.id,
-      date: newTransaction.date,
-      type: newTransaction.type,
-      account: newTransaction.account,
-      category: newTransaction.category,
-      amount: newTransaction.amount,
-      note: newTransaction.note,
-      created_at: newTransaction.createdAt,
-      is_confirmed: newTransaction.isConfirmed,
-      source: newTransaction.source,
-      ...(newTransaction.type === "transfer"
-        ? { to_account: newTransaction.toAccount }
-        : {}),
+      return {
+        id: createId("tx"),
+        date: index === 0 ? transactionDate : addMonthsToDate(transactionDate, index),
+        type: txType,
+        account: txAccount,
+        toAccount: txType === "transfer" ? txTransferTarget : undefined,
+        category: txType === "transfer" ? "Transfer" : txCategory.trim(),
+        amount: installmentAmount,
+        note: installmentNote,
+        createdAt,
+        isConfirmed:
+          txType === "transfer" ||
+          (isInstallmentPurchase
+            ? index === 0 && transactionDate <= todayInputValue()
+            : txIsConfirmed && transactionDate <= todayInputValue()),
+        source: "manual",
+      };
     });
+
+    if (isPlanRestricted) {
+      const monthCounts = new Map<string, number>();
+      for (const transaction of transactions) {
+        const month = transaction.date.slice(0, 7);
+        monthCounts.set(month, (monthCounts.get(month) ?? 0) + 1);
+      }
+      const affectedMonths = new Set<string>();
+      for (const transaction of newTransactions) {
+        const month = transaction.date.slice(0, 7);
+        affectedMonths.add(month);
+        monthCounts.set(month, (monthCounts.get(month) ?? 0) + 1);
+      }
+      if ([...affectedMonths].some((month) => (monthCounts.get(month) ?? 0) > 3)) {
+        openXLUpgrade();
+        showToast("L Plan'da her ay en fazla 3 işlem eklenebilir.");
+        return;
+      }
+    }
+
+    const { error } = await supabase.from("transactions").insert(
+      newTransactions.map((transaction) => ({
+        id: transaction.id,
+        user_id: user.id,
+        date: transaction.date,
+        type: transaction.type,
+        account: transaction.account,
+        category: transaction.category,
+        amount: transaction.amount,
+        note: transaction.note,
+        created_at: transaction.createdAt,
+        is_confirmed: transaction.isConfirmed,
+        source: transaction.source,
+        ...(transaction.type === "transfer"
+          ? { to_account: transaction.toAccount }
+          : {}),
+      })),
+    );
 
     if (error) {
       console.error("İşlem ekleme hatası:", {
@@ -2517,13 +3400,20 @@ export default function Home() {
       });
       showToast(`İşlem kaydedilemedi [${error.code}]: ${error.message}`, 8000);
     } else {
-      setTransactions((current) => [newTransaction, ...current]);
+      setTransactions((current) => [...newTransactions, ...current]);
       setTxAmount("");
       setTxNote("");
       setTxDate(todayInputValue());
       setTxIsConfirmed(txType === "expense");
+      setInstallmentCount("1");
       setActiveTab("history");
-      showToast(txType === "transfer" ? "Transfer eklendi." : "İşlem eklendi.");
+      showToast(
+        isInstallmentPurchase
+          ? `${count} taksitli işlem eklendi.`
+          : txType === "transfer"
+            ? "Transfer eklendi."
+            : "İşlem eklendi.",
+      );
     }
   }
 
@@ -2651,6 +3541,14 @@ export default function Home() {
     const targetTransaction = transactions.find((item) => item.id === targetId);
     if (!targetTransaction) return;
     if (
+      isPlanRestricted &&
+      updatedDate.slice(0, 7) !== targetTransaction.date.slice(0, 7) &&
+      transactions.filter((item) => item.date.slice(0, 7) === updatedDate.slice(0, 7)).length >= 3
+    ) {
+      openXLUpgrade();
+      return;
+    }
+    if (
       editType === "transfer" &&
       editTransferSource === editTransferTarget
     ) {
@@ -2717,6 +3615,9 @@ export default function Home() {
   const pendingDeleteTransaction = pendingDeleteId
     ? transactions.find((item) => item.id === pendingDeleteId)
     : undefined;
+  const pendingDeleteGoal = pendingDeleteGoalId
+    ? activeSavingsGoals.find((goal) => goal.id === pendingDeleteGoalId)
+    : undefined;
 
   return (
     <>
@@ -2740,6 +3641,22 @@ export default function Home() {
       {authReady && user ? (
     <main className="page">
       <div className="shell pb-28 md:pb-0">
+        {isXL &&
+          profile?.planSource === "trial" &&
+          trialDaysRemaining !== null &&
+          trialDaysRemaining <= 5 &&
+          !trialBannerDismissed && (
+            <div className="trialReminderBanner" role="status">
+              <span>XL denemenin bitmesine {trialDaysRemaining} gün kaldı.</span>
+              <button
+                type="button"
+                onClick={() => setTrialBannerDismissed(true)}
+                aria-label="Deneme hatırlatmasını kapat"
+              >
+                ×
+              </button>
+            </div>
+          )}
         <header className="hero">
           <div className="brandWithLimit">
             <div className="brand">
@@ -2846,7 +3763,7 @@ export default function Home() {
           </div>
         </header>
 
-        <nav className="tabs md:justify-center md:gap-4">
+        <nav className={`tabs ${isScrolled ? "scrolled" : ""} md:justify-center md:gap-4`}>
           {tabs.map((tab) => (
             <button
               key={tab.id}
@@ -2912,6 +3829,119 @@ export default function Home() {
                 value={formatMoney(balances.totalAssets, privacyMode)}
               />
             </div>
+
+            <section className="panel savingsGoalsPanel">
+              <div className="savingsGoalsHeader">
+                <div>
+                  <h2>Birikim Hedefleri</h2>
+                  <p>Hedeflerini takip et, birikimlerini adım adım büyüt.</p>
+                </div>
+                <button
+                  className="btn savingsGoalAddButton"
+                  type="button"
+                  onClick={() => setSavingsGoalModalOpen(true)}
+                >
+                  + Hedef Ekle
+                </button>
+              </div>
+
+              {activeSavingsGoals.length === 0 ? (
+                <Empty text="Henüz birikim hedefi eklenmedi." />
+              ) : (
+                <div className="savingsGoalList">
+                  {activeSavingsGoals.map((goal) => {
+                    const progress =
+                      goal.targetAmount > 0
+                        ? Math.min(100, Math.max(0, (goal.currentAmount / goal.targetAmount) * 100))
+                        : 0;
+                    return (
+                      <article className="savingsGoalItem" key={goal.id}>
+                        <div className="savingsGoalTop">
+                          <div>
+                            <h3>{goal.title}</h3>
+                            <span className="savingsGoalAmounts">
+                              {formatMoney(goal.currentAmount, privacyMode)} /{" "}
+                              {formatMoney(goal.targetAmount, privacyMode)}
+                            </span>
+                          </div>
+                          <strong className="savingsGoalProgressLabel">
+                            {privacyMode ? "••%" : formatPercent(progress)}
+                          </strong>
+                        </div>
+                        <div
+                          className="savingsGoalProgressTrack"
+                          role="progressbar"
+                          aria-label={`${goal.title} hedef ilerlemesi`}
+                          aria-valuemin={0}
+                          aria-valuemax={100}
+                          aria-valuenow={Math.round(progress)}
+                        >
+                          <div
+                            className="savingsGoalProgressFill"
+                            style={{ width: `${progress}%` }}
+                          />
+                        </div>
+
+                        {goalContributionId === goal.id ? (
+                          <form
+                            className="savingsGoalContribution"
+                            onSubmit={(event) => {
+                              event.preventDefault();
+                              void addSavingsGoalContribution(goal.id);
+                            }}
+                          >
+                            <input
+                              className="h-10"
+                              type="text"
+                              inputMode="decimal"
+                              aria-label={`${goal.title} hedefine eklenecek tutar`}
+                              value={goalContributionDraft}
+                              onChange={(event) => setGoalContributionDraft(event.target.value)}
+                              placeholder="Eklenecek tutar"
+                              autoFocus
+                            />
+                            <button className="btn small success" type="submit" disabled={savingGoal}>
+                              Ekle
+                            </button>
+                            <button
+                              className="btn small secondary"
+                              type="button"
+                              onClick={() => {
+                                setGoalContributionId(null);
+                                setGoalContributionDraft("");
+                              }}
+                              disabled={savingGoal}
+                            >
+                              İptal
+                            </button>
+                          </form>
+                        ) : (
+                          <div className="savingsGoalActions">
+                            <button
+                              className="btn small success"
+                              type="button"
+                              onClick={() => {
+                                setGoalContributionId(goal.id);
+                                setGoalContributionDraft("");
+                              }}
+                            >
+                              + Tutar Ekle
+                            </button>
+                            <button
+                              className="btn small danger"
+                              type="button"
+                              onClick={() => setPendingDeleteGoalId(goal.id)}
+                            >
+                              Sil
+                            </button>
+                          </div>
+                        )}
+                      </article>
+                    );
+                  })}
+                </div>
+              )}
+            </section>
           </section>
         )}
 
@@ -2952,6 +3982,7 @@ export default function Home() {
                         onChange={(event) => {
                           const source = event.target.value as AccountKey;
                           setTxAccount(source);
+                          if (source !== "creditCard") setInstallmentCount("1");
                           if (txType === "transfer" && source === txTransferTarget) {
                             setTxTransferTarget(source === "cash" ? "bank" : "cash");
                           }
@@ -3038,6 +4069,53 @@ export default function Home() {
                           </button>
                         ))}
                       </div>
+                      {txType === "expense" && txAccount === "creditCard" && (
+                        <div className="installmentSelector">
+                          <span className="installmentLabel">Taksit</span>
+                          <div className="installmentOptions" role="group" aria-label="Taksit sayısı">
+                            {[
+                              ["1", "Peşin"],
+                              ["2", "2"],
+                              ["3", "3"],
+                              ["6", "6"],
+                              ["9", "9"],
+                              ["12", "12"],
+                            ].map(([count, label]) => {
+                              const locked = count !== "1" && isPlanRestricted;
+                              const selected =
+                                count === "1"
+                                  ? Number(installmentCount) === 1 || isPlanRestricted
+                                  : !isPlanRestricted && installmentCount === count;
+                              return (
+                                <button
+                                  key={count}
+                                  className={`installmentOption ${selected ? "active" : ""} ${locked ? "lockedPlanOption" : ""}`}
+                                  type="button"
+                                  aria-pressed={selected}
+                                  aria-disabled={locked}
+                                  onClick={() => {
+                                    if (locked) {
+                                      openXLUpgrade();
+                                      return;
+                                    }
+                                    setInstallmentCount(count);
+                                  }}
+                                >
+                                  {locked && <PlanLockIcon />}
+                                  {label}
+                                </button>
+                              );
+                            })}
+                          </div>
+                          {!isPlanRestricted && Number(installmentCount) > 1 && parseAmountInput(txAmount) > 0 && (
+                            <span className="installmentPreview">
+                              {installmentCount} ×{" "}
+                              {formatMoney(parseAmountInput(txAmount) / Number(installmentCount), privacyMode)}{" "}
+                              / ay
+                            </span>
+                          )}
+                        </div>
+                      )}
                       {(txType === "income" || txType === "expense") && (
                         <div className="transactionConfirmationField">
                           <label className="incomeConfirmationField">
@@ -3266,7 +4344,28 @@ export default function Home() {
             ) : (
               <div className="list">
                 {sortedTransactions.map((item) => (
-                  <div className="historyEntry" key={item.id}>
+                  <div
+                    className={`historyEntry ${item.isSystemXL && !isXL ? "systemPlanEntry" : ""}`}
+                    key={item.id}
+                    role={item.isSystemXL && !isXL ? "button" : undefined}
+                    tabIndex={item.isSystemXL && !isXL ? 0 : undefined}
+                    aria-label={
+                      item.isSystemXL && !isXL
+                        ? "XL aboneliği hakkında bilgi al"
+                        : undefined
+                    }
+                    onClick={item.isSystemXL && !isXL ? openXLUpgrade : undefined}
+                    onKeyDown={
+                      item.isSystemXL && !isXL
+                        ? (event) => {
+                            if (event.key === "Enter" || event.key === " ") {
+                              event.preventDefault();
+                              openXLUpgrade();
+                            }
+                          }
+                        : undefined
+                    }
+                  >
                     <div className="listItem">
                       <div>
                         <div className="listTitle">
@@ -3285,7 +4384,10 @@ export default function Home() {
                                   ? "Gelir"
                                   : "Gider"}
                           </span>
-                          {item.type !== "transfer" && <span>{item.category}</span>}
+                          {item.type !== "transfer" && (
+                            <span>{transactionDisplayCategory(item)}</span>
+                          )}
+                          {item.isSystemXL && <span className="planTinyBadge">XL</span>}
                           {item.source === "debtPayment" && <span className="pill">Ödeme</span>}
                         </div>
 
@@ -3315,39 +4417,41 @@ export default function Home() {
                           {formatMoney(item.amount, privacyMode)}
                         </div>
 
-                        <div className="buttonRow transactionActions">
-                          <button
-                            className="btn info small"
-                            type="button"
-                            onClick={() => openEditTransaction(item)}
-                          >
-                            Düzenle
-                          </button>
-                          <button
-                            className="btn danger small"
-                            type="button"
-                            onClick={() => setPendingDeleteId(item.id)}
-                          >
-                            Geri Al
-                          </button>
-                          {item.type !== "transfer" && (
+                        {!(item.isSystemXL && !isXL) && (
+                          <div className="buttonRow transactionActions">
                             <button
-                              className={`btn small ${item.isConfirmed ? "secondary" : "success"}`}
+                              className="btn info small"
                               type="button"
-                              onClick={() =>
-                                updateTransactionConfirmation(item.id, !item.isConfirmed)
-                              }
+                              onClick={() => openEditTransaction(item)}
                             >
-                              {item.type === "income"
-                                ? item.isConfirmed
-                                  ? "Almadım"
-                                  : "Aldım"
-                                : item.isConfirmed
-                                  ? "Ödemedim"
-                                  : "Ödedim"}
+                              Düzenle
                             </button>
-                          )}
-                        </div>
+                            <button
+                              className="btn danger small"
+                              type="button"
+                              onClick={() => setPendingDeleteId(item.id)}
+                            >
+                              Geri Al
+                            </button>
+                            {item.type !== "transfer" && (
+                              <button
+                                className={`btn small ${item.isConfirmed ? "secondary" : "success"}`}
+                                type="button"
+                                onClick={() =>
+                                  updateTransactionConfirmation(item.id, !item.isConfirmed)
+                                }
+                              >
+                                {item.type === "income"
+                                  ? item.isConfirmed
+                                    ? "Almadım"
+                                    : "Aldım"
+                                  : item.isConfirmed
+                                    ? "Ödemedim"
+                                    : "Ödedim"}
+                              </button>
+                            )}
+                          </div>
+                        )}
                       </div>
                     </div>
 
@@ -3494,12 +4598,132 @@ export default function Home() {
               <div>
                 <h2>Analiz</h2>
                 <p>Seçili dönemin gelir, gider ve hesap hareketleri.</p>
+                {isForecastView && (
+                  <span className="forecastBadge">Planlanan / Tahmini Görünüm</span>
+                )}
               </div>
               <MonthSelector
-                value={selectedMonth}
+                value={isPlanRestricted ? currentMonth : selectedMonth}
                 currentMonth={currentMonth}
-                onChange={setSelectedMonth}
+                onChange={(month) => {
+                  if (isPlanRestricted) {
+                    openXLUpgrade();
+                    return;
+                  }
+                  setSelectedMonth(month);
+                  setAnalysisDateFilter(month ? "month" : "all");
+                }}
+                locked={isPlanRestricted}
+                onLocked={openXLUpgrade}
               />
+            </div>
+
+            <div className="analysisDateFilterPanel glass">
+              <div className="analysisDateFilterGroups">
+                <div className="analysisDateFilterGroup" role="group" aria-label="Geçmiş dönem">
+                  <span>Geçmiş</span>
+                  {([
+                    ["past-2", "Son 2 Ay"],
+                    ["past-3", "Son 3 Ay"],
+                    ["past-6", "Son 6 Ay"],
+                  ] as const).map(([filter, label]) => {
+                    const locked = isPlanRestricted;
+                    return (
+                      <button
+                        key={filter}
+                        className={`analysisDatePill ${!isPlanRestricted && analysisDateFilter === filter ? "active" : ""} ${locked ? "lockedPlanOption" : ""}`}
+                        type="button"
+                        aria-pressed={!isPlanRestricted && analysisDateFilter === filter}
+                        aria-disabled={locked}
+                        onClick={() => {
+                          if (locked) {
+                            openXLUpgrade();
+                            return;
+                          }
+                          setAnalysisDateFilter(filter);
+                        }}
+                      >
+                        {locked && <PlanLockIcon />}
+                        {label}
+                      </button>
+                    );
+                  })}
+                </div>
+                <div className="analysisDateFilterGroup" role="group" aria-label="Gelecek dönem">
+                  <span>Gelecek</span>
+                  {([
+                    ["future-2", "Gelecek 2 Ay"],
+                    ["future-3", "Gelecek 3 Ay"],
+                    ["future-6", "Gelecek 6 Ay"],
+                  ] as const).map(([filter, label]) => {
+                    const locked = isPlanRestricted;
+                    return (
+                      <button
+                        key={filter}
+                        className={`analysisDatePill ${!isPlanRestricted && analysisDateFilter === filter ? "active" : ""} ${locked ? "lockedPlanOption" : ""}`}
+                        type="button"
+                        aria-pressed={!isPlanRestricted && analysisDateFilter === filter}
+                        aria-disabled={locked}
+                        onClick={() => {
+                          if (locked) {
+                            openXLUpgrade();
+                            return;
+                          }
+                          setAnalysisDateFilter(filter);
+                        }}
+                      >
+                        {locked && <PlanLockIcon />}
+                        {label}
+                      </button>
+                    );
+                  })}
+                </div>
+                <div className="analysisDateFilterGroup" role="group" aria-label="Özel tarih aralığı">
+                  <button
+                    className={`analysisDatePill ${!isPlanRestricted && analysisDateFilter === "custom" ? "active" : ""} ${isPlanRestricted ? "lockedPlanOption" : ""}`}
+                    type="button"
+                    aria-pressed={!isPlanRestricted && analysisDateFilter === "custom"}
+                    aria-disabled={isPlanRestricted}
+                    onClick={() => {
+                      if (isPlanRestricted) {
+                        openXLUpgrade();
+                        return;
+                      }
+                      setAnalysisDateFilter("custom");
+                    }}
+                  >
+                    {isPlanRestricted && <PlanLockIcon />}
+                    Özel Aralık
+                  </button>
+                </div>
+              </div>
+              {effectiveAnalysisDateFilter === "custom" && (
+                <>
+                  <div className="customAnalysisRange">
+                    <label>
+                      <span>Başlangıç</span>
+                      <input
+                        type="date"
+                        value={customRangeStart}
+                        onChange={(event) => setCustomRangeStart(event.target.value)}
+                      />
+                    </label>
+                    <label>
+                      <span>Bitiş</span>
+                      <input
+                        type="date"
+                        value={customRangeEnd}
+                        onChange={(event) => setCustomRangeEnd(event.target.value)}
+                      />
+                    </label>
+                  </div>
+                  {!isCustomAnalysisRangeValid && (
+                    <span className="customAnalysisRangeError" role="status">
+                      Başlangıç ve bitiş tarihlerini doğru sırayla seç.
+                    </span>
+                  )}
+                </>
+              )}
             </div>
 
             <section className="panel">
@@ -3922,12 +5146,25 @@ export default function Home() {
             <div className="accountDetail planDetail">
               <span>Üyelik Planı</span>
               <div className="planValue">
-                <strong className="planBadge">
-                  {profile?.plan === "pro" ? "Pro Plan" : "Standart Plan"}
-                </strong>
-                <button className="btn secondary small" type="button" disabled>
-                  Pro&apos;ya Yükselt (Yakında)
-                </button>
+                {isXL ? (
+                  <div className="planActiveSummary">
+                    <strong className="planBadge">Fiyor₺X XL Aktif</strong>
+                    {profile?.planSource === "trial" && trialDaysRemaining !== null && (
+                      <span>{trialDaysRemaining} gün deneme kaldı</span>
+                    )}
+                  </div>
+                ) : (
+                  <>
+                    <strong className="planBadge">L Plan (Ücretsiz)</strong>
+                    <button
+                      className="btn secondary small"
+                      type="button"
+                      onClick={openXLUpgrade}
+                    >
+                      Fiyor₺X XL&apos;ye Geç
+                    </button>
+                  </>
+                )}
               </div>
             </div>
 
@@ -4071,13 +5308,14 @@ export default function Home() {
           </section>
         </div>
       )}
-      {user && pendingDeleteTransaction && (
+      {user && (pendingDeleteTransaction || pendingDeleteGoal) && (
         <div
           className="deleteConfirmOverlay"
           role="presentation"
           onMouseDown={(event) => {
-            if (event.target === event.currentTarget && !deletingTransactionId) {
+            if (event.target === event.currentTarget && !deletingTransactionId && !deletingGoal) {
               setPendingDeleteId(null);
+              setPendingDeleteGoalId(null);
             }
           }}
         >
@@ -4085,9 +5323,9 @@ export default function Home() {
             className="deleteConfirmModal glass"
             role="alertdialog"
             aria-modal="true"
-            aria-labelledby="delete-transaction-title"
-            aria-describedby="delete-transaction-description"
-            aria-busy={deletingTransactionId === pendingDeleteTransaction.id}
+            aria-labelledby="delete-item-title"
+            aria-describedby="delete-item-description"
+            aria-busy={Boolean(deletingTransactionId) || deletingGoal}
           >
             <div className="deleteConfirmIcon" aria-hidden="true">
               <svg viewBox="0 0 24 24" fill="none">
@@ -4100,44 +5338,135 @@ export default function Home() {
                 />
               </svg>
             </div>
-            <h2 id="delete-transaction-title">İşlem silinsin mi?</h2>
+            <h2 id="delete-item-title">
+              {pendingDeleteGoal ? "Hedef silinsin mi?" : "İşlem silinsin mi?"}
+            </h2>
             <div className="deleteConfirmTransaction">
-              <strong>
-                {pendingDeleteTransaction.type === "transfer"
-                  ? "Transfer"
-                  : pendingDeleteTransaction.category}
-              </strong>
-              <span className={`amount ${pendingDeleteTransaction.type}`}>
-                {pendingDeleteTransaction.type === "income"
-                  ? "+"
-                  : pendingDeleteTransaction.type === "expense"
-                    ? "−"
-                    : "↔ "}
-                {formatMoney(pendingDeleteTransaction.amount, privacyMode)}
-              </span>
+              {pendingDeleteGoal ? (
+                <strong>{pendingDeleteGoal.title}</strong>
+              ) : (
+                <>
+                  <strong>
+                    {pendingDeleteTransaction?.type === "transfer"
+                      ? "Transfer"
+                      : pendingDeleteTransaction
+                        ? transactionDisplayCategory(pendingDeleteTransaction)
+                        : ""}
+                  </strong>
+                  <span className={`amount ${pendingDeleteTransaction?.type ?? "expense"}`}>
+                    {pendingDeleteTransaction?.type === "income"
+                      ? "+"
+                      : pendingDeleteTransaction?.type === "expense"
+                        ? "−"
+                        : "↔ "}
+                    {formatMoney(pendingDeleteTransaction?.amount ?? 0, privacyMode)}
+                  </span>
+                </>
+              )}
             </div>
-            <p id="delete-transaction-description">
-              Bu işlemi geri almak istediğine emin misin?
+            <p id="delete-item-description">
+              {pendingDeleteGoal
+                ? "Bu birikim hedefini kalıcı olarak silmek istediğine emin misin?"
+                : "Bu işlemi geri almak istediğine emin misin?"}
             </p>
             <div className="deleteConfirmActions">
               <button
                 ref={deleteCancelButtonRef}
                 className="btn secondary"
                 type="button"
-                onClick={() => setPendingDeleteId(null)}
-                disabled={Boolean(deletingTransactionId)}
+                onClick={() => {
+                  setPendingDeleteId(null);
+                  setPendingDeleteGoalId(null);
+                }}
+                disabled={Boolean(deletingTransactionId) || deletingGoal}
               >
                 İptal
               </button>
               <button
                 className="btn danger deleteConfirmDanger"
                 type="button"
-                onClick={() => undoTransaction(pendingDeleteTransaction.id)}
-                disabled={Boolean(deletingTransactionId)}
+                onClick={() => {
+                  if (pendingDeleteGoal) void deleteSavingsGoal(pendingDeleteGoal.id);
+                  else if (pendingDeleteTransaction) {
+                    void undoTransaction(pendingDeleteTransaction.id);
+                  }
+                }}
+                disabled={Boolean(deletingTransactionId) || deletingGoal}
               >
-                {deletingTransactionId ? "Siliniyor..." : "Evet, Sil"}
+                {deletingTransactionId || deletingGoal ? "Siliniyor..." : "Evet, Sil"}
               </button>
             </div>
+          </section>
+        </div>
+      )}
+      {user && savingsGoalModalOpen && (
+        <div
+          className="accountOverlay"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget && !savingGoal) {
+              setSavingsGoalModalOpen(false);
+            }
+          }}
+        >
+          <section
+            className="deleteConfirmModal glass savingsGoalModal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="savings-goal-modal-title"
+          >
+            <h2 id="savings-goal-modal-title">Birikim Hedefi Ekle</h2>
+            <p>Yeni hedefinin adını ve tutarını belirle.</p>
+            <form className="savingsGoalForm" onSubmit={addSavingsGoal}>
+              <div className="field">
+                <label htmlFor="savings-goal-title">Hedef Adı</label>
+                <input
+                  id="savings-goal-title"
+                  type="text"
+                  value={savingsGoalTitle}
+                  onChange={(event) => setSavingsGoalTitle(event.target.value)}
+                  placeholder="Tatil, Acil Durum..."
+                  maxLength={70}
+                  required
+                />
+              </div>
+              <div className="field">
+                <label htmlFor="savings-goal-target">Hedef Tutar (₺)</label>
+                <input
+                  id="savings-goal-target"
+                  type="text"
+                  inputMode="decimal"
+                  value={savingsGoalTarget}
+                  onChange={(event) => setSavingsGoalTarget(event.target.value)}
+                  placeholder="0"
+                  required
+                />
+              </div>
+              <div className="field">
+                <label htmlFor="savings-goal-initial">Başlangıç Tutarı (isteğe bağlı)</label>
+                <input
+                  id="savings-goal-initial"
+                  type="text"
+                  inputMode="decimal"
+                  value={savingsGoalInitial}
+                  onChange={(event) => setSavingsGoalInitial(event.target.value)}
+                  placeholder="0"
+                />
+              </div>
+              <div className="deleteConfirmActions">
+                <button
+                  className="btn secondary"
+                  type="button"
+                  onClick={() => setSavingsGoalModalOpen(false)}
+                  disabled={savingGoal}
+                >
+                  İptal
+                </button>
+                <button className="btn success" type="submit" disabled={savingGoal}>
+                  {savingGoal ? "Kaydediliyor..." : "Hedefi Kaydet"}
+                </button>
+              </div>
+            </form>
           </section>
         </div>
       )}
@@ -4212,6 +5541,88 @@ export default function Home() {
                 </button>
               </div>
             </form>
+          </section>
+        </div>
+      )}
+      {user && xlUpgradeOpen && (
+        <div
+          className="accountOverlay"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setXLUpgradeOpen(false);
+          }}
+        >
+          <section
+            className="planUpgradeModal glass"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="xl-upgrade-title"
+          >
+            <header className="accountMenuHeader">
+              <div>
+                <h2 id="xl-upgrade-title">Fiyor₺X XL</h2>
+                <p>Finans akışını daha geniş bir zaman aralığında yönet.</p>
+              </div>
+              <button
+                className="iconButton glass"
+                type="button"
+                onClick={() => setXLUpgradeOpen(false)}
+                aria-label="XL plan penceresini kapat"
+              >
+                ×
+              </button>
+            </header>
+
+            <div className="planComparisonScroll">
+              <table className="planComparisonTable">
+                <thead>
+                  <tr>
+                    <th scope="col">Özellik</th>
+                    <th scope="col">L Plan</th>
+                    <th scope="col">XL Plan</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {planComparisonRows.map((row) => (
+                    <tr key={row.feature}>
+                      <th scope="row">{row.feature}</th>
+                      <td>{row.free}</td>
+                      <td>
+                        {row.comingSoon ? (
+                          <span className="comingSoonBadge">{row.xl}</span>
+                        ) : (
+                          row.xl
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="xlPriceCard">
+              <div>
+                <strong>
+                  {currentXLPrice === 44
+                    ? "30 Aralık 2026'ya kadar Kurucu Fiyat"
+                    : "XL Plan fiyatı"}
+                </strong>
+                <span>
+                  ₺{currentXLPrice}/ay
+                  {currentXLPrice === 44 && (
+                    <del>₺66/ay</del>
+                  )}
+                </span>
+              </div>
+              <p>
+                {currentXLPrice === 44
+                  ? "Kurucu fiyatı 30 Aralık 2026 dahil geçerlidir."
+                  : "Kurucu fiyat dönemi sona erdi."}
+              </p>
+              <button className="btn xlPurchasePending" type="button" disabled>
+                XL&apos;ye Geç (Play Store Ödemesi Yakında)
+              </button>
+            </div>
           </section>
         </div>
       )}
@@ -4431,9 +5842,19 @@ function AppIcon({
     case "cash":
       shape = (
         <>
-          <rect x="3" y="6" width="18" height="13" rx="2" />
-          <path d="M3 10h18m-9 2v1" />
-          <circle cx="12" cy="13" r="2" />
+          <rect x="2.5" y="5.5" width="19" height="13" rx="1.5" />
+          <path d="M5 8h2V7m10 0v1h2M5 16h2v1m10 0v-1h2M8 8.5h8" />
+          <text
+            x="12"
+            y="14.8"
+            fill="currentColor"
+            fontSize="7"
+            fontWeight="700"
+            stroke="none"
+            textAnchor="middle"
+          >
+            ₺
+          </text>
         </>
       );
       break;
@@ -4463,9 +5884,9 @@ function AppIcon({
     case "savings":
       shape = (
         <>
-          <path d="M5 10a7 7 0 0 1 12-2h3v6h-3a7 7 0 0 1-12 2H3v-5h2Z" />
-          <circle cx="14" cy="11" r="1" />
-          <path d="M8 7V4m-3 5L3 7m4 10v2" />
+          <path d="M5 5.5h13a2 2 0 0 1 2 2v8" />
+          <path d="M3.5 8h13a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2Z" />
+          <path d="M10 8v11m-2-6h4" />
         </>
       );
       break;
@@ -4565,25 +5986,42 @@ function Empty({ text }: { text: string }) {
   return <div className="empty">{text}</div>;
 }
 
+function PlanLockIcon() {
+  return (
+    <svg className="planLockIcon" viewBox="0 0 16 16" aria-hidden="true">
+      <path d="M4.5 7V5a3.5 3.5 0 0 1 7 0v2M3.5 7h9v7h-9z" />
+    </svg>
+  );
+}
+
 function MonthSelector({
   value,
   currentMonth,
   onChange,
+  locked = false,
+  onLocked,
 }: {
   value: string | null;
   currentMonth: string;
   onChange: (month: string | null) => void;
+  locked?: boolean;
+  onLocked?: () => void;
 }) {
   function moveMonth(offset: number) {
+    if (locked) {
+      onLocked?.();
+      return;
+    }
     onChange(shiftMonth(value ?? currentMonth, offset));
   }
 
   return (
     <div className="monthControl glass" role="group" aria-label="Ay filtresi">
       <button
-        className="monthArrow"
+        className={`monthArrow ${locked ? "lockedPlanOption" : ""}`}
         type="button"
         aria-label="Önceki ay"
+        aria-disabled={locked}
         onClick={() => moveMonth(-1)}
       >
         ‹
@@ -4592,18 +6030,20 @@ function MonthSelector({
         {value ? formatMonthLabel(value) : "Tüm Zamanlar"}
       </span>
       <button
-        className="monthArrow"
+        className={`monthArrow ${locked ? "lockedPlanOption" : ""}`}
         type="button"
         aria-label="Sonraki ay"
+        aria-disabled={locked}
         onClick={() => moveMonth(1)}
       >
         ›
       </button>
       <button
-        className={`monthAllButton ${value === null ? "active" : ""}`}
+        className={`monthAllButton ${value === null ? "active" : ""} ${locked ? "lockedPlanOption" : ""}`}
         type="button"
         aria-pressed={value === null}
-        onClick={() => onChange(null)}
+        aria-disabled={locked}
+        onClick={() => (locked ? onLocked?.() : onChange(null))}
       >
         Tümü
       </button>

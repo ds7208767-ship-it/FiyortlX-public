@@ -27,6 +27,7 @@ export type Transaction = {
   note: string;
   createdAt: string;
   isConfirmed: boolean;
+  isSystemXL?: boolean;
   source?: "manual" | "debtPayment";
   debtId?: string;
 };
@@ -44,7 +45,9 @@ export type FixedIncome = {
 
 export type UserProfile = {
   avatarUrl: string | null;
-  plan: "standard" | "pro";
+  plan: "L" | "XL";
+  planSource: "trial" | "google_play" | "manual";
+  planExpiresAt: string | null;
 };
 
 export type Debt = {

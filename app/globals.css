@@ -3761,3 +3761,696 @@ button:disabled {
     justify-self: end;
   }
 }
+
+.installmentSelector {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 10px 12px;
+  border: 1px solid rgba(125, 211, 252, 0.14);
+  border-radius: 14px;
+  background: rgba(2, 8, 23, 0.28);
+}
+
+.installmentLabel {
+  color: #cbd5e1;
+  font-size: 11px;
+  font-weight: 750;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.installmentOptions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.installmentOption {
+  min-width: 38px;
+  min-height: 32px;
+  padding: 6px 10px;
+  border: 1px solid rgba(148, 163, 184, 0.17);
+  border-radius: 999px;
+  color: #bac9d8;
+  background: rgba(15, 30, 54, 0.55);
+  font-size: 11px;
+  font-weight: 700;
+  transition: 160ms ease;
+}
+
+.installmentOption.active {
+  border-color: rgba(125, 211, 252, 0.42);
+  color: #e0f2fe;
+  background: rgba(14, 116, 144, 0.28);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+.installmentPreview {
+  color: #bae6fd;
+  font-size: 12px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+
+.savingsGoalsPanel {
+  padding: 17px;
+}
+
+.savingsGoalsHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 14px;
+}
+
+.savingsGoalsHeader h2 {
+  color: #f0f9ff;
+  font-size: 16px;
+  font-weight: 800;
+}
+
+.savingsGoalsHeader p {
+  margin-top: 4px;
+  color: #91a4b8;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.savingsGoalAddButton {
+  min-height: 36px;
+  padding: 7px 12px;
+  border-color: rgba(125, 211, 252, 0.23);
+  color: #e0f2fe;
+  background: rgba(14, 116, 144, 0.2);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.savingsGoalList {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr));
+  gap: 10px;
+}
+
+.savingsGoalItem {
+  display: grid;
+  gap: 11px;
+  min-width: 0;
+  padding: 13px;
+  border: 1px solid rgba(125, 211, 252, 0.13);
+  border-radius: 16px;
+  background: rgba(2, 8, 23, 0.28);
+}
+
+.savingsGoalTop {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.savingsGoalTop h3 {
+  overflow: hidden;
+  color: #eaf6ff;
+  font-size: 13px;
+  font-weight: 750;
+  text-overflow: ellipsis;
+}
+
+.savingsGoalAmounts {
+  display: block;
+  margin-top: 4px;
+  color: #9fb3c8;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.savingsGoalProgressLabel {
+  flex: 0 0 auto;
+  color: #bae6fd;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.savingsGoalProgressTrack {
+  height: 7px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.15);
+}
+
+.savingsGoalProgressFill {
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #0ea5e9, #67e8f9);
+  box-shadow: 0 0 14px rgba(56, 189, 248, 0.3);
+  transition: width 240ms ease;
+}
+
+.savingsGoalActions,
+.savingsGoalContribution {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.savingsGoalContribution input {
+  width: min(100%, 150px);
+  min-width: 0;
+  padding: 7px 9px;
+  border: 1px solid rgba(125, 211, 252, 0.17);
+  border-radius: 10px;
+  outline: none;
+  color: #f0f9ff;
+  background: rgba(2, 8, 23, 0.55);
+  font-size: 12px;
+}
+
+.savingsGoalContribution input:focus {
+  border-color: rgba(125, 211, 252, 0.5);
+}
+
+.savingsGoalModal {
+  text-align: left;
+}
+
+.savingsGoalModal > h2 {
+  text-align: center;
+}
+
+.savingsGoalModal > p {
+  margin-top: 5px;
+  text-align: center;
+}
+
+.savingsGoalForm {
+  display: grid;
+  gap: 12px;
+  margin-top: 20px;
+}
+
+.savingsGoalForm .field {
+  gap: 6px;
+}
+
+.savingsGoalForm .field label {
+  font-size: 12px;
+}
+
+.savingsGoalForm .field input {
+  min-height: 43px;
+  padding: 9px 11px;
+  border: 1px solid rgba(125, 211, 252, 0.16);
+  border-radius: 11px;
+  outline: none;
+  color: #f0f9ff;
+  background: rgba(2, 8, 23, 0.48);
+  font-size: 13px;
+}
+
+.savingsGoalForm .field input:focus {
+  border-color: rgba(125, 211, 252, 0.5);
+}
+
+.analysisDateFilterPanel {
+  display: grid;
+  gap: 10px;
+  justify-self: start;
+  width: fit-content;
+  max-width: 100%;
+  min-width: 0;
+  overflow-x: auto;
+  padding: 10px;
+  border-radius: 999px;
+  border-color: rgba(255, 255, 255, 0.13);
+  background: rgba(6, 16, 29, 0.58);
+  scrollbar-width: none;
+}
+
+.analysisDateFilterPanel::-webkit-scrollbar {
+  display: none;
+}
+
+.analysisDateFilterGroups {
+  display: flex;
+  width: max-content;
+  min-width: 100%;
+  align-items: center;
+  gap: 8px;
+}
+
+.analysisDateFilterGroup {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 6px;
+  padding-right: 8px;
+  border-right: 1px solid rgba(148, 163, 184, 0.15);
+}
+
+.analysisDateFilterGroup:last-child {
+  padding-right: 0;
+  border-right: 0;
+}
+
+.analysisDateFilterGroup > span {
+  margin-right: 2px;
+  color: #8fa4ba;
+  font-size: 10px;
+  font-weight: 750;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.analysisDatePill {
+  min-height: 31px;
+  padding: 6px 12px;
+  border: 1px solid rgba(148, 163, 184, 0.15);
+  border-radius: 999px;
+  color: #b6c8da;
+  background: rgba(15, 30, 54, 0.44);
+  font-size: 10px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.analysisDatePill.active {
+  border-color: rgba(125, 211, 252, 0.4);
+  color: #e0f2fe;
+  background: rgba(14, 116, 144, 0.26);
+}
+
+.customAnalysisRange {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  width: min(100%, 460px);
+}
+
+.customAnalysisRange label {
+  display: grid;
+  gap: 5px;
+  color: #a9bacb;
+  font-size: 10px;
+}
+
+.customAnalysisRange input {
+  min-width: 0;
+  min-height: 36px;
+  padding: 6px 8px;
+  border: 1px solid rgba(125, 211, 252, 0.15);
+  border-radius: 9px;
+  color: #eaf6ff;
+  background: rgba(2, 8, 23, 0.55);
+  font-size: 11px;
+}
+
+.customAnalysisRangeError {
+  color: #fda4af;
+  font-size: 11px;
+}
+
+.forecastBadge {
+  display: inline-flex;
+  width: fit-content;
+  margin-top: 7px;
+  padding: 5px 9px;
+  border: 1px solid rgba(103, 232, 249, 0.22);
+  border-radius: 999px;
+  color: #a5f3fc;
+  background: rgba(8, 145, 178, 0.13);
+  font-size: 10px;
+  font-weight: 750;
+  letter-spacing: 0.02em;
+}
+
+@media (max-width: 560px) {
+  .savingsGoalsPanel {
+    padding: 14px;
+  }
+
+  .savingsGoalsHeader {
+    align-items: center;
+    gap: 8px;
+  }
+
+  .savingsGoalsHeader h2 {
+    font-size: 14px;
+  }
+
+  .savingsGoalsHeader p {
+    max-width: 230px;
+  }
+
+  .savingsGoalList {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .analysisDateFilterPanel {
+    margin-top: -4px;
+    border-radius: 16px;
+  }
+
+  .customAnalysisRange {
+    width: 100%;
+  }
+
+  .savingsGoalModal {
+    padding: 22px 17px;
+  }
+}
+
+.hero {
+  border-color: rgba(255, 255, 255, 0.15);
+  background: rgba(6, 16, 29, 0.85);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  box-shadow:
+    0 12px 36px rgba(0, 0, 0, 0.45),
+    inset 0 1px 0 rgba(255, 255, 255, 0.18);
+}
+
+.overviewTotals > .card {
+  padding: 14px;
+}
+
+.overviewTotals .cardValue {
+  margin-top: 6px;
+  font-size: clamp(18px, 2.1vw, 25px);
+  line-height: 1.15;
+}
+
+.overviewTotals .readonlyTotal {
+  min-height: 0;
+}
+
+@media (max-width: 768px) {
+  .tabs {
+    border-color: rgba(255, 255, 255, 0.15);
+    background: rgba(6, 15, 28, 0.82);
+    backdrop-filter: blur(24px);
+    -webkit-backdrop-filter: blur(24px);
+    box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.3);
+    transition: background-color 220ms ease, box-shadow 220ms ease;
+  }
+
+  .tabs.scrolled {
+    background: rgba(4, 10, 20, 0.94);
+    box-shadow: 0 -10px 30px rgba(0, 0, 0, 0.65);
+  }
+
+  .grid.balanceCards > .editableMoneyCard {
+    gap: 10px;
+    padding: 12px;
+  }
+
+  .balanceCards .accountCardHeading {
+    gap: 6px;
+  }
+
+  .balanceCards .accountCardHeading .cardLabel {
+    font-size: 11px;
+    letter-spacing: 0.04em;
+  }
+
+  .balanceCards .moneyInput {
+    height: 40px;
+    padding: 8px 10px;
+    border-radius: 10px;
+    font-size: 25px;
+  }
+
+  .grid.overviewTotals {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+  }
+
+  .overviewTotals > :nth-child(1) {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  .overviewTotals > :nth-child(2) {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+
+  .overviewTotals > :nth-child(3) {
+    grid-column: 2;
+    grid-row: 1;
+  }
+
+  .overviewTotals > .card {
+    padding: 12px;
+  }
+
+  .overviewTotals .cardLabel {
+    font-size: 11px;
+  }
+
+  .overviewTotals .cardValue {
+    font-size: clamp(17px, 4vw, 22px);
+  }
+}
+
+.planLockIcon {
+  width: 11px;
+  height: 11px;
+  flex: 0 0 auto;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.lockedPlanOption {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  color: #a4b2c2;
+}
+
+.analysisDatePill.lockedPlanOption,
+.installmentOption.lockedPlanOption,
+.monthControl .lockedPlanOption {
+  border-color: rgba(148, 163, 184, 0.18);
+  background: rgba(15, 23, 42, 0.42);
+}
+
+.systemPlanEntry {
+  cursor: pointer;
+  border-radius: 14px;
+  transition: border-color 160ms ease, background-color 160ms ease;
+}
+
+.systemPlanEntry:hover,
+.systemPlanEntry:focus-visible {
+  border-color: rgba(125, 211, 252, 0.34);
+  background: rgba(14, 116, 144, 0.1);
+  outline: none;
+}
+
+.planTinyBadge {
+  padding: 2px 6px;
+  border: 1px solid rgba(125, 211, 252, 0.3);
+  border-radius: 999px;
+  color: #bae6fd;
+  background: rgba(14, 116, 144, 0.2);
+  font-size: 9px;
+  font-weight: 800;
+  line-height: 1.3;
+}
+
+.planActiveSummary {
+  display: grid;
+  justify-items: start;
+  gap: 4px;
+}
+
+.planActiveSummary > span {
+  color: #a8bbce;
+  font-size: 11px;
+}
+
+.trialReminderBanner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+  padding: 7px 12px;
+  border: 1px solid rgba(125, 211, 252, 0.2);
+  border-radius: 12px;
+  color: #d7efff;
+  background: rgba(7, 37, 59, 0.72);
+  font-size: 11px;
+  font-weight: 650;
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+
+.trialReminderBanner button {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  color: inherit;
+  background: transparent;
+  font-size: 18px;
+}
+
+.planUpgradeModal {
+  width: min(680px, calc(100vw - 32px));
+  max-height: 88vh;
+  overflow-y: auto;
+  padding: 22px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 24px;
+  background:
+    radial-gradient(circle at top right, rgba(14, 116, 144, 0.16), transparent 16rem),
+    rgba(6, 16, 29, 0.94);
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.52), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+}
+
+.planUpgradeModal .accountMenuHeader {
+  margin-bottom: 16px;
+}
+
+.planUpgradeModal .accountMenuHeader p {
+  margin-top: 4px;
+  color: #9fb3c8;
+  font-size: 12px;
+}
+
+.planComparisonScroll {
+  overflow-x: auto;
+  border: 1px solid rgba(148, 163, 184, 0.13);
+  border-radius: 14px;
+}
+
+.planComparisonTable {
+  width: 100%;
+  min-width: 490px;
+  border-collapse: collapse;
+  color: #e6f0fa;
+  font-size: 12px;
+}
+
+.planComparisonTable th,
+.planComparisonTable td {
+  padding: 10px 12px;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.1);
+  text-align: center;
+}
+
+.planComparisonTable thead th {
+  color: #9fdcff;
+  background: rgba(14, 116, 144, 0.12);
+  font-size: 11px;
+}
+
+.planComparisonTable th:first-child {
+  width: 54%;
+  text-align: left;
+}
+
+.planComparisonTable tbody th {
+  color: #c3d2e0;
+  font-weight: 650;
+}
+
+.planComparisonTable tbody tr:last-child > * {
+  border-bottom: 0;
+}
+
+.comingSoonBadge {
+  display: inline-flex;
+  padding: 3px 7px;
+  border: 1px solid rgba(125, 211, 252, 0.2);
+  border-radius: 999px;
+  color: #a7e8ff;
+  background: rgba(14, 116, 144, 0.18);
+  font-size: 10px;
+  font-weight: 750;
+}
+
+.xlPriceCard {
+  display: grid;
+  gap: 9px;
+  margin-top: 14px;
+  padding: 14px;
+  border: 1px solid rgba(125, 211, 252, 0.2);
+  border-radius: 16px;
+  background: rgba(8, 35, 54, 0.5);
+}
+
+.xlPriceCard > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.xlPriceCard strong {
+  color: #d9f3ff;
+  font-size: 12px;
+}
+
+.xlPriceCard > div > span {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  color: #7dd3fc;
+  font-size: 18px;
+  font-weight: 850;
+  white-space: nowrap;
+}
+
+.xlPriceCard del {
+  color: #8a9bad;
+  font-size: 11px;
+  font-weight: 550;
+}
+
+.xlPriceCard p {
+  color: #9fb3c8;
+  font-size: 10px;
+}
+
+.xlPurchasePending {
+  width: 100%;
+  cursor: not-allowed;
+  opacity: 0.72;
+}
+
+@media (max-width: 560px) {
+  .planUpgradeModal {
+    padding: 17px 14px;
+    border-radius: 20px;
+  }
+
+  .planComparisonTable {
+    font-size: 11px;
+  }
+
+  .planComparisonTable th,
+  .planComparisonTable td {
+    padding: 9px 8px;
+  }
+
+  .xlPriceCard > div {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 6px;
+  }
+}
